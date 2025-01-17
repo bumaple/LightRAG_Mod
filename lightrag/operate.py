@@ -232,7 +232,7 @@ async def _handle_entity_relation_summary(
     )
     use_prompt = prompt_template.format(**context_base)
     logger.debug(f"Trigger summary: {entity_or_relation_name}")
-    summary = await use_llm_func(use_prompt, max_tokens=summary_max_tokens)
+    summary = await use_llm_func(prompt=use_prompt, max_tokens=summary_max_tokens)
     return summary
 
 
@@ -494,10 +494,10 @@ async def extract_entities(
 
             if history_messages:
                 res: str = await use_llm_func(
-                    input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total
+                    prompt=input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total
                 )
             else:
-                res: str = await use_llm_func(input_text, chunk_index=chunk_index, chunk_total=chunk_total)
+                res: str = await use_llm_func(prompt=input_text, chunk_index=chunk_index, chunk_total=chunk_total)
             await save_to_cache(
                 llm_response_cache,
                 CacheData(args_hash=arg_hash, content=res, prompt=_prompt),
@@ -505,9 +505,9 @@ async def extract_entities(
             return res
 
         if history_messages:
-            return await use_llm_func(input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total)
+            return await use_llm_func(prompt=input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total)
         else:
-            return await use_llm_func(input_text, chunk_index=chunk_index, chunk_total=chunk_total)
+            return await use_llm_func(prompt=input_text, chunk_index=chunk_index, chunk_total=chunk_total)
 
     async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema], chunk_index: int, chunk_total: int):
         nonlocal already_processed, already_entities, already_relations
@@ -582,7 +582,7 @@ async def extract_entities(
 
     results = []
     for result in tqdm_async(
-        asyncio.as_completed([_process_single_content(c, chunk_index=idx, chunk_total=len(ordered_chunks)) for idx, c in enumerate(ordered_chunks)]),
+        asyncio.as_completed([_process_single_content(chunk_key_dp=c, chunk_index=idx, chunk_total=len(ordered_chunks)) for idx, c in enumerate(ordered_chunks)]),
         total=len(ordered_chunks),
         desc="Extracting entities from chunks",
         unit="chunk",
