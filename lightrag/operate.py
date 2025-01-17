@@ -64,12 +64,25 @@ def chunking_by_markdown_header(
         extend_entity_sn: str = '',
         chunk_header_level: int = 2,
 ):
-    extend_entity_content = f"{extend_entity_sn} 《{extend_entity_title}》\n"
+    # extend_entity_content = f"{extend_entity_sn} 《{extend_entity_title}》"
+    extend_entity_content = f"[{extend_entity_title}]-"
+
+    # 在每一级标题符号后插入 extend_entity_content（如果不存在）。
+    new_content_lines = []
+    split_content_lines = content.split('\n')
+    for split_content_line in split_content_lines:
+        if re.match(r'^#{1,6}\s+.+', split_content_line):
+            new_content_lines.append(insert_entity_content_after_header_symbol(split_content_line, extend_entity_content))
+        else:
+            new_content_lines.append(split_content_line)
+
+    new_content = '\n'.join(new_content_lines)
+
     results = []
     md_split_contents = _chunking_text_by_markerdown_header_loop(
         max_token_size=max_token_size,
         header_level=1,
-        content=content
+        content=new_content
     )
 
     # 再用文本分割器再分割，控制不超过制定长度
@@ -79,7 +92,7 @@ def chunking_by_markdown_header(
     md_splits = markdown_text_splitter.split_documents(md_split_contents)
     chunk_order_index = 0
     for md_split in md_splits:
-        chunk_content = f"{extend_entity_content}{md_split.page_content.strip()}"
+        chunk_content = md_split.page_content.strip()
         chunk_content_size = len(chunk_content)
         results.append(
             {
@@ -100,11 +113,13 @@ def _chunking_text_by_markerdown_header_loop(
     content_splits = []
     header = str("#" * header_level)
     header_text = f"Header {header_level}"
+    # 按标题分割内容
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=[(header, header_text)],
         strip_headers=False,
     )
     md_splits = markdown_splitter.split_text(content)
+    # 递归处理分块内容
     md_loop_splits = _chunking_list_by_markerdown_header_loop(
         max_token_size=max_token_size,
         header_level=header_level + 1,
@@ -130,6 +145,7 @@ def _chunking_list_by_markerdown_header_loop(
             if header_line_is_title:
                 header_title = header_line.strip()
 
+            # 按下一级标题分割
             header = str("#" * header_level)
             header_text = f"Header {header_level}"
             markdown_splitter = MarkdownHeaderTextSplitter(
@@ -137,6 +153,7 @@ def _chunking_list_by_markerdown_header_loop(
                 strip_headers=False,
             )
             md_splits = markdown_splitter.split_text(content.page_content)
+            # 保留上级标题
             for idx, md_split in enumerate(md_splits):
                 if idx > 0:
                     md_split.page_content = f"{header_title}\n{md_split.page_content}"
@@ -149,6 +166,18 @@ def _chunking_list_by_markerdown_header_loop(
         else:
             content_splits.append(content)
     return content_splits
+
+
+def insert_entity_content_after_header_symbol(text: str, extend_entity_content: str) -> str:
+    """在Markdown标题符号和标题内容之间插入extend_entity_content，如果内容已存在则不插入"""
+    if match := re.match(r'^(#{1,6})\s+(.+)$', text):
+        header_symbols, header_content = match.groups()
+        # 去除extend_entity_content末尾的换行符进行比较
+        entity_content_without_newline = extend_entity_content.rstrip('\n')
+        # 检查标题内容中是否已经包含相同的实体内容
+        if entity_content_without_newline not in header_content:
+            return f"{header_symbols} {extend_entity_content}[{header_content}]"
+    return text
 
 
 def chunking_by_markdown_text(
