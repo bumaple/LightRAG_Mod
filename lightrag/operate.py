@@ -496,10 +496,10 @@ async def extract_entities(
 
             if history_messages:
                 res: str = await use_llm_func(
-                    input_text, history_messages=history_messages, index=index, total=total
+                    input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total
                 )
             else:
-                res: str = await use_llm_func(input_text, index=index, total=total)
+                res: str = await use_llm_func(input_text, chunk_index=chunk_index, chunk_total=chunk_total)
             await save_to_cache(
                 llm_response_cache,
                 CacheData(args_hash=arg_hash, content=res, prompt=_prompt),
@@ -507,9 +507,9 @@ async def extract_entities(
             return res
 
         if history_messages:
-            return await use_llm_func(input_text, history_messages=history_messages, index=index, total=total)
+            return await use_llm_func(input_text, history_messages=history_messages, chunk_index=chunk_index, chunk_total=chunk_total)
         else:
-            return await use_llm_func(input_text, index=index, total=total)
+            return await use_llm_func(input_text, chunk_index=chunk_index, chunk_total=chunk_total)
 
     async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema], chunk_index: int, chunk_total: int):
         nonlocal already_processed, already_entities, already_relations
