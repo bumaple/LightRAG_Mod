@@ -1,7 +1,6 @@
 import asyncio
 import os
 
-from lightrag.operate import chunking_by_markdown_header
 from tqdm.asyncio import tqdm as tqdm_async
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -193,7 +192,7 @@ class LightRAG:
     # 自定义新增 块类型 by bumaple 2024-12-11
     chunk_type: str = 'token_size'
     # 自定义新增 块标题层级 by bumaple 2024-12-11
-    chunk_header_level: int = 2
+    # chunk_header_level: int = 2
 
     # Add new field for document status storage type
     doc_status_storage: str = field(default="JsonDocStatusStorage")
@@ -396,7 +395,6 @@ class LightRAG:
                                 max_token_size=self.chunk_token_size,
                                 extend_entity_title=self.extend_entity_title,
                                 extend_entity_sn=self.extend_entity_sn,
-                                chunk_header_level=self.chunk_header_level,
                             )
                         }
                     elif self.chunk_type == "markdown_text":
@@ -489,7 +487,9 @@ class LightRAG:
 
                     error_msg = f"Failed to process document {doc_id}: {str(e)}\n{traceback.format_exc()}"
                     logger.error(error_msg)
-                    continue
+                    # 修改继续下一个为抛出异常 2025-01-17 by bumaple
+                    raise e
+                    # continue
 
                 finally:
                     # Ensure all indexes are updated after each document

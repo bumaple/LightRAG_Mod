@@ -32,8 +32,7 @@ from .base import (
 import time
 from .prompt_cn import GRAPH_FIELD_SEP, PROMPTS
 # 引入自定义的文本分割器 bumaple 2024-12-10
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter, MarkdownTextSplitter
-from langchain_core.documents import Document
+from langchain_text_splitters import MarkdownHeaderTextSplitter, MarkdownTextSplitter
 
 
 def chunking_by_token_size(
@@ -62,7 +61,6 @@ def chunking_by_markdown_header(
         content: str, overlap_token_size=128, max_token_size=1024,
         extend_entity_title: str = '',
         extend_entity_sn: str = '',
-        chunk_header_level: int = 2,
 ):
     # extend_entity_content = f"{extend_entity_sn} 《{extend_entity_title}》"
     extend_entity_content = f"[{extend_entity_title}]-"
@@ -521,11 +519,11 @@ async def extract_entities(
             **context_base, input_text="{input_text}"
         ).format(**context_base, input_text=content)
 
-        final_result = await _user_llm_func_with_cache(hint_prompt, chunk_index=chunk_index, chunk_total=chunk_total)
+        final_result = await _user_llm_func_with_cache(input_text=hint_prompt, chunk_index=chunk_index, chunk_total=chunk_total)
         history = pack_user_ass_to_openai_messages(hint_prompt, final_result)
         for now_glean_index in range(entity_extract_max_gleaning):
             glean_result = await _user_llm_func_with_cache(
-                continue_prompt, history_messages=history, chunk_index=chunk_index, chunk_total=chunk_total
+                input_text=continue_prompt, history_messages=history, chunk_index=chunk_index, chunk_total=chunk_total
             )
 
             history += pack_user_ass_to_openai_messages(continue_prompt, glean_result)
@@ -534,7 +532,7 @@ async def extract_entities(
                 break
 
             if_loop_result: str = await _user_llm_func_with_cache(
-                if_loop_prompt, history_messages=history, chunk_index=chunk_index, chunk_total=chunk_total
+                input_text=if_loop_prompt, history_messages=history, chunk_index=chunk_index, chunk_total=chunk_total
             )
             if_loop_result = if_loop_result.strip().strip('"').strip("'").lower()
             if if_loop_result != "yes":
@@ -584,7 +582,7 @@ async def extract_entities(
 
     results = []
     for result in tqdm_async(
-        asyncio.as_completed([_process_single_content(c, idx, len(ordered_chunks)) for idx, c in enumerate(ordered_chunks)]),
+        asyncio.as_completed([_process_single_content(c, chunk_index=idx, chunk_total=len(ordered_chunks)) for idx, c in enumerate(ordered_chunks)]),
         total=len(ordered_chunks),
         desc="Extracting entities from chunks",
         unit="chunk",
@@ -861,7 +859,7 @@ async def _build_query_context(
                 and hl_relations_context == ""
                 and hl_text_units_context == ""
             ):
-                logger.warn("No high level context found. Switching to local mode.")
+                logger.warning("No high level context found. Switching to local mode.")
                 query_param.mode = "local"
     if query_param.mode == "hybrid":
         entities_context, relations_context, text_units_context = combine_contexts(
