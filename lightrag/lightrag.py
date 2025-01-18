@@ -192,7 +192,7 @@ class LightRAG:
     # 自定义新增 块类型 by bumaple 2024-12-11
     chunk_type: str = 'token_size'
     # 自定义新增 块标题层级 by bumaple 2024-12-11
-    # chunk_header_level: int = 2
+    chunk_header_level: int = 2
 
     # Add new field for document status storage type
     doc_status_storage: str = field(default="JsonDocStatusStorage")
@@ -395,6 +395,7 @@ class LightRAG:
                                 max_token_size=self.chunk_token_size,
                                 extend_entity_title=self.extend_entity_title,
                                 extend_entity_sn=self.extend_entity_sn,
+                                chunk_header_level=self.chunk_header_level,
                             )
                         }
                     elif self.chunk_type == "markdown_text":
