@@ -20,6 +20,7 @@ from .operate import (
     kg_query,
     naive_query,
     mix_kg_vector_query,
+    refactor_query,
 )
 
 from .utils import (
@@ -1080,3 +1081,28 @@ class LightRAG:
             )
         finally:
             tracemalloc.stop()
+
+    def refactor_query(self, query: str, param: QueryParam = QueryParam()):
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.refactor_aquery(query, param))
+
+    async def refactor_aquery(self, query: str, param: QueryParam = QueryParam()):
+        response = await refactor_query(
+            query,
+            self.chunk_entity_relation_graph,
+            self.entities_vdb,
+            self.relationships_vdb,
+            self.text_chunks,
+            param,
+            asdict(self),
+            hashing_kv=self.llm_response_cache
+            if self.llm_response_cache
+            and hasattr(self.llm_response_cache, "global_config")
+            else self.key_string_value_json_storage_cls(
+                namespace="llm_response_cache",
+                global_config=asdict(self),
+                embedding_func=None,
+            ),
+        )
+        await self._query_done()
+        return response

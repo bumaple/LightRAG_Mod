@@ -1679,3 +1679,167 @@ async def mix_kg_vector_query(
     )
 
     return response
+
+async def refactor_query(
+    query,
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    relationships_vdb: BaseVectorStorage,
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+    global_config: dict,
+    hashing_kv: BaseKVStorage = None,
+) -> str:
+    # Handle cache
+    use_model_func = global_config["llm_model_func"]
+    args_hash = compute_args_hash(query_param.mode, query)
+    cached_response, quantized, min_val, max_val = await handle_cache(
+        hashing_kv, args_hash, query, query_param.mode
+    )
+    if cached_response is not None:
+        return cached_response
+
+    example_number = global_config["addon_params"].get("example_number", None)
+    if example_number and example_number < len(PROMPTS["custom_keywords_extraction_examples"]):
+        examples = "\n".join(
+            PROMPTS["custom_keywords_extraction_examples"][: int(example_number)]
+        )
+    else:
+        examples = "\n".join(PROMPTS["custom_keywords_extraction_examples"])
+    language = global_config["addon_params"].get(
+        "language", PROMPTS["DEFAULT_LANGUAGE"]
+    )
+
+    # LLM generate keywords
+    kw_prompt_temp = PROMPTS["custom_keywords_extraction"]
+    kw_prompt = kw_prompt_temp.format(query=query, examples=examples, language=language)
+    result = await use_model_func(kw_prompt, keyword_extraction=True)
+    logger.info(f"kw_prompt result:\n{result}")
+    try:
+        match = re.search(r"\{.*\}", result, re.DOTALL)
+        if match:
+            result = match.group(0)
+            keywords_data = json.loads(result)
+
+            keywords = keywords_data.get("keywords", [])
+        else:
+            logger.error("No JSON-like structure found in the result.")
+            return PROMPTS["fail_response"]
+
+    # Handle parsing error
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {e} {result}")
+        return PROMPTS["fail_response"]
+
+    # Handdle keywords missing
+    if keywords == []:
+        logger.warning("keywords is empty")
+        return PROMPTS["fail_response"]
+
+    keywords_str = ", ".join(keywords) if keywords else ""
+
+    # Build context
+    context = await _build_refactor_query_context(
+        [keywords_str],
+        knowledge_graph_inst,
+        entities_vdb,
+        relationships_vdb,
+        text_chunks_db,
+        query_param,
+    )
+
+    if context is None:
+        return PROMPTS["fail_response"]
+    sys_prompt_temp = PROMPTS["refactor_query"]
+    sys_prompt = sys_prompt_temp.format(
+        context_data=context, query=query, keywords=f"{keywords}",
+    )
+    if query_param.only_need_prompt:
+        return sys_prompt
+    response = await use_model_func(
+        query,
+        system_prompt=sys_prompt,
+        stream=query_param.stream,
+    )
+    if isinstance(response, str) and len(response) > len(sys_prompt):
+        response = (
+            response.replace(sys_prompt, "")
+            .replace("user", "")
+            .replace("model", "")
+            .replace(query, "")
+            .replace("<system>", "")
+            .replace("</system>", "")
+            .strip()
+        )
+
+    # Save to cache
+    await save_to_cache(
+        hashing_kv,
+        CacheData(
+            args_hash=args_hash,
+            content=response,
+            prompt=query,
+            quantized=quantized,
+            min_val=min_val,
+            max_val=max_val,
+            mode=query_param.mode,
+        ),
+    )
+    return response
+
+
+async def _build_refactor_query_context(
+    query: list,
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    relationships_vdb: BaseVectorStorage,
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+):
+    kewwords = query[0]
+    if kewwords == "":
+        entities_context, relations_context, text_units_context = (
+            "",
+            "",
+            "",
+        )
+    else:
+        (
+            entities_context,
+            relations_context,
+            text_units_context,
+        ) = await _get_node_data(
+            kewwords,
+            knowledge_graph_inst,
+            entities_vdb,
+            text_chunks_db,
+            query_param,
+        )
+
+        # (
+        #     entities_context,
+        #     relations_context,
+        #     text_units_context,
+        # ) = await _get_edge_data(
+        #     kewwords,
+        #     knowledge_graph_inst,
+        #     relationships_vdb,
+        #     text_chunks_db,
+        #     query_param,
+        # )
+
+    return f"""
+-----Entities-----
+```csv
+{entities_context}
+```
+-----Relationships-----
+```csv
+{relations_context}
+"""
+# ```
+# -----Sources-----
+# ```csv
+# {text_units_context}
+# ```
+# """
