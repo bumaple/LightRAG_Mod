@@ -1722,6 +1722,11 @@ async def refactor_query(
             keywords_data = json.loads(result)
 
             keywords = keywords_data.get("keywords", [])
+            response_type = keywords_data.get("response_type", "")
+            if len(response_type) > 0:
+                query_param.response_type = response_type
+            else:
+                response_type = ''
         else:
             logger.error("No JSON-like structure found in the result.")
             return PROMPTS["fail_response"]
@@ -1752,7 +1757,7 @@ async def refactor_query(
         return PROMPTS["fail_response"]
     sys_prompt_temp = PROMPTS["refactor_query"]
     sys_prompt = sys_prompt_temp.format(
-        context_data=context, query=query, keywords=f"{keywords}",
+        context_data=context, query=query, keywords=f"{keywords}", response_type=response_type
     )
     if query_param.only_need_prompt:
         return sys_prompt
