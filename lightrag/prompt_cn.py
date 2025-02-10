@@ -28,7 +28,7 @@ PROMPTS["entity_extraction"] = """-目的-
 -entity_description：对实体的属性和活动进行的全面描述。
 将每个实体格式化为 ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>){record_delimiter}
 
-2.从步骤1中识别的实体中，识别彼此*明显相关*的所有对（source_entity、target_entity）。如果有步骤1中识别的实体无*明显相关*的实体，那么建立与"{extend_entity_sn}"实体的“标准与内容"关系。
+2.从步骤1中识别的实体中，识别彼此*明显相关*的所有对（source_entity、target_entity）。
 对于每对相关实体，提取以下信息：
 -source_entity：源实体的名称，如步骤1中所标识的。
 -target_entity：目标实体的名称，如步骤1中所标识的。
@@ -69,12 +69,6 @@ GB2761-2017
 2017-03-17发布
 2017-09-17实施
 中华人民共和国国家卫生和计划生育委员会 发布
-# 前言
-GB2761-2017代替GB2761-2011《食品安全国家标准食品中真菌毒素限量》。
-GB2761-2017与GB2761-2011相比,主要变化如下:
---增加了葡萄酒和咖啡中赭曲霉毒素A限量要求;
---更新了检验方法标准号;
-食品安全国家标准食品中真菌毒素限量
 ################
 输出:
 ("entity"{tuple_delimiter}GB2761-2017{tuple_delimiter}标准编号{tuple_delimiter}食品安全国家标准食品中真菌毒素限量的标准编号){record_delimiter}
@@ -83,18 +77,10 @@ GB2761-2017与GB2761-2011相比,主要变化如下:
 ("entity"{tuple_delimiter}2017-03-17{tuple_delimiter}发布日期{tuple_delimiter}标准发布的具体日期){record_delimiter}
 ("entity"{tuple_delimiter}2017-09-17{tuple_delimiter}实施日期{tuple_delimiter}标准正式实施的日期){record_delimiter}
 ("entity"{tuple_delimiter}中华人民共和国国家卫生和计划生育委员会{tuple_delimiter}发布机构{tuple_delimiter}负责发布该标准的政府机构之一){record_delimiter}
-("entity"{tuple_delimiter}GB2761-2011{tuple_delimiter}代替标准{tuple_delimiter}被GB2761-2017替代的旧标准){record_delimiter}
-("entity"{tuple_delimiter}葡萄酒{tuple_delimiter}食品名称{tuple_delimiter}新增赭曲霉毒素A限量要求的食品){record_delimiter}
-("entity"{tuple_delimiter}咖啡{tuple_delimiter}食品名称{tuple_delimiter}新增赭曲霉毒素A限量要求的食品){record_delimiter}
-("entity"{tuple_delimiter}赭曲霉毒素A{tuple_delimiter}元素{tuple_delimiter}在葡萄酒和咖啡中新增限量要求的真菌毒素){record_delimiter}
-("entity"{tuple_delimiter}检验方法标准号{tuple_delimiter}检验方法标准号{tuple_delimiter}更新的检验方法相关标准号){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}食品安全国家标准{tuple_delimiter}国家标准文件描述了食品中真菌毒素限量的具体标准{tuple_delimiter}标准、规范、内容{tuple_delimiter}8){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}2017-03-17{tuple_delimiter}标准的发布日期{tuple_delimiter}发布、时间{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}2017-09-17{tuple_delimiter}标准的实施日期{tuple_delimiter}实施、时间{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}中华人民共和国国家卫生和计划生育委员会{tuple_delimiter}GB2761-2017{tuple_delimiter}作为标准发布机构之一{tuple_delimiter}发布者、标准{tuple_delimiter}6){record_delimiter}
-("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}GB2761-2011{tuple_delimiter}新标准替代旧标准{tuple_delimiter}代替、更新{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}葡萄酒{tuple_delimiter}赭曲霉毒素A{tuple_delimiter}新增限量要求的食品类型和元素{tuple_delimiter}限量、增加{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}咖啡{tuple_delimiter}赭曲霉毒素A{tuple_delimiter}新增限量要求的食品类型和元素{tuple_delimiter}限量、增加{tuple_delimiter}7){record_delimiter}
 ("content_keywords"{tuple_delimiter}食品安全、真菌毒素、国家标准、限量要求、营养食品、检验方法、发布日期、实施日期、发布机构){completion_delimiter}
 ######################""",
     """范例2:
@@ -105,17 +91,6 @@ GB2761-2017规定了食品中黄曲霉毒素B<sub>1</sub>、黄曲霉毒素M<sub
 # 2 术语和定义
 ## 2.1 真菌毒素
 真菌在生长繁殖过程中产生的次生有毒代谢产物。
-## 2.2 可食用部分
-食品原料经过机械手段(如谷物碾磨、水果剥皮、坚果去壳、肉去骨、鱼去刺、贝去壳等)去除非食用部分后,所得到的用于食用的部分。
-注1:非食用部分的去除不可采用任何非机械手段(如粗制植物油精炼过程)。
-注2:用相同的食品原料生产不同产品时,可食用部分的量依生产工艺不同而异。如用麦类加工麦片和全麦粉时,可食用部分按100%计算;加工小麦粉时,可食用部分按出粉率折算。
-## 2.3 限量
-真菌毒素在食品原料和(或)食品成品可食用部分中允许的最大含量水平。
-# 3 应用原则
-## 3.1 无论是否制定真菌毒素限量,食品生产和加工者均应采取控制措施,使食品中真菌毒素的含量达到最低水平。
-## 3.2 GB2761-2017列出了可能对公众健康构成较大风险的真菌毒素,制定限量值的食品是对消费者膳食暴露量产生较大影响的食品。
-## 3.3 食品类别(名称)说明(附录A)用于界定真菌毒素限量的适用范围,仅适用于GB2761-2017。当某种真菌毒素限量应用于某一食品类别(名称)时,则该食品类别(名称)内的所有类别食品均适用,有特别规定的除外。
-## 3.4 食品中真菌毒素限量以食品通常的可食用部分计算,有特别规定的除外。
 #############
 输出:
 ("entity"{tuple_delimiter}GB2761-2017{tuple_delimiter}标准号{tuple_delimiter}食品中真菌毒素限量的国家标准编号，2017年版本){record_delimiter}
@@ -127,21 +102,13 @@ GB2761-2017规定了食品中黄曲霉毒素B<sub>1</sub>、黄曲霉毒素M<sub
 ("entity"{tuple_delimiter}赭曲霉毒素A{tuple_delimiter}化合物{tuple_delimiter}一种由曲霉菌产生的霉菌毒素){record_delimiter}
 ("entity"{tuple_delimiter}玉米赤霉烯酮{tuple_delimiter}化合物{tuple_delimiter}一种由赤霉菌在玉米上产生的真菌毒素){record_delimiter}
 ("entity"{tuple_delimiter}真菌毒素{tuple_delimiter}术语{tuple_delimiter}真菌在生长繁殖过程中产生的次生有毒代谢产物){record_delimiter}
-("entity"{tuple_delimiter}可食用部分{tuple_delimiter}术语{tuple_delimiter}食品原料经过机械手段去除非食用部分后，用于食用的部分){record_delimiter}
-("entity"{tuple_delimiter}限量{tuple_delimiter}术语{tuple_delimiter}真菌毒素在食品原料和(或)食品成品可食用部分中允许的最大含量水平){record_delimiter}
-("entity"{tuple_delimiter}3.1{tuple_delimiter}应用原则{tuple_delimiter}食品生产和加工者应采取控制措施，使食品中真菌毒素含量达到最低水平){record_delimiter}
-("entity"{tuple_delimiter}3.2{tuple_delimiter}应用原则{tuple_delimiter}标准列出了可能对公众健康构成较大风险的真菌毒素，并制定限量值的食品){record_delimiter}
-("entity"{tuple_delimiter}3.3{tuple_delimiter}应用原则{tuple_delimiter}食品类别说明用于界定真菌毒素限量的适用范围，适用于标准中的所有食品类别){record_delimiter}
-("entity"{tuple_delimiter}3.4{tuple_delimiter}应用原则{tuple_delimiter}食品中真菌毒素限量以食品通常的可食用部分计算，特别规定除外){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}黄曲霉毒素B<sub>1</sub>{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}黄曲霉毒素M<sub>1</sub>{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}脱氧雪腐镰刀菌烯醇{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}展青霉素{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}赭曲霉毒素A{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}玉米赤霉烯酮{tuple_delimiter}标准规定了该毒素在食品中的最大允许限量{tuple_delimiter}规定{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}可食用部分{tuple_delimiter}标准规定了食品原料经过机械手段(如谷物碾磨、水果剥皮、坚果去壳、肉去骨、鱼去刺、贝去壳等)去除非食用部分后,所得到的用于食用的部分{tuple_delimiter}规定{tuple_delimiter}6){record_delimiter}
 ("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}真菌毒素{tuple_delimiter}标准规定了真菌毒素在食品原料和(或)食品成品可食用部分中的最大允许含量。{tuple_delimiter}含量限制{tuple_delimiter}4){record_delimiter}
-("relationship"{tuple_delimiter}GB2761-2017{tuple_delimiter}应用原则{tuple_delimiter}标准规定了应用原则{tuple_delimiter}适用{tuple_delimiter}5){record_delimiter}
 ("content_keywords"{tuple_delimiter}真菌毒素、食品安全、限量标准、毒素类型、可食用部分、应用原则、控制措施){completion_delimiter}
 ######################""",
     """范例3:
