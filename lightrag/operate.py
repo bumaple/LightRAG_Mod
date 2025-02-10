@@ -33,8 +33,6 @@ from .base import (
 )
 import time
 from .prompt_cn import GRAPH_FIELD_SEP, PROMPTS
-# 引入自定义的文本分割器 bumaple 2024-12-10
-from langchain_text_splitters import MarkdownHeaderTextSplitter, MarkdownTextSplitter
 
 
 def chunking_by_token_size(
@@ -93,226 +91,6 @@ def chunking_by_token_size(
                     "chunk_order_index": index,
                 }
             )
-    return results
-
-
-def chunking_by_markdown_header_simple(
-        content: str, overlap_token_size=128, max_token_size=1024,
-        extend_entity_title: str = '',
-        extend_entity_sn: str = '',
-):
-    extend_entity_content_full = f"{extend_entity_sn} 《{extend_entity_title}》"
-    extend_entity_content = f"[{extend_entity_title}]-"
-
-    results = []
-    # header = str("#" * header_level)
-    # header_text = f"Header {header_level}"
-    header_to_split_on = [("#", "Header 1"), ("##", "Header 2")]
-    # 按标题分割内容
-    markdown_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=header_to_split_on,
-        strip_headers=False,
-    )
-    md_split_contents = markdown_splitter.split_text(content)
-
-    # 再用文本分割器再分割，控制不超过制定长度
-    markdown_text_splitter = MarkdownTextSplitter(
-        chunk_size=max_token_size, chunk_overlap=overlap_token_size
-    )
-    md_splits = markdown_text_splitter.split_documents(md_split_contents)
-    chunk_order_index = 0
-    for md_split in md_splits:
-        # 在每一级标题符号后插入 extend_entity_content（如果不存在）。
-        new_content_lines = []
-        split_content_lines = md_split.page_content.strip().split('\n')
-        for split_content_line in split_content_lines:
-            if re.match(r'^#{1,6}\s+.+', split_content_line):
-                new_content_lines.append(
-                    insert_entity_content_after_header_symbol(split_content_line, extend_entity_content))
-            else:
-                new_content_lines.append(split_content_line)
-
-        new_chunk_content = '\n'.join(new_content_lines)
-
-        chunk_content_size = len(new_chunk_content)
-        results.append(
-            {
-                "tokens": chunk_content_size,
-                "content": new_chunk_content,
-                "chunk_order_index": chunk_order_index,
-            }
-        )
-        chunk_order_index += chunk_content_size
-    return results
-
-
-# 引入Markdown的文本分割器 bumaple 2024-12-10
-def chunking_by_markdown_header(
-        content: str, overlap_token_size=128, max_token_size=1024,
-        extend_entity_title: str = '',
-        extend_entity_sn: str = '',
-        chunk_header_level: int = 2,
-):
-    extend_entity_content_full = f"{extend_entity_sn} 《{extend_entity_title}》\n"
-    extend_entity_content = f"[{extend_entity_title}]-"
-
-    results = []
-    md_split_contents = _chunking_text_by_markerdown_header_loop(
-        max_token_size=max_token_size,
-        header_level=1,
-        content=content,
-        chunk_header_level=chunk_header_level,
-    )
-
-    # 再用文本分割器再分割，控制不超过制定长度
-    markdown_text_splitter = MarkdownTextSplitter(
-        chunk_size=max_token_size, chunk_overlap=overlap_token_size
-    )
-    md_splits = markdown_text_splitter.split_documents(md_split_contents)
-    chunk_order_index = 0
-    for md_split in md_splits:
-        # 在每一级标题符号后插入 extend_entity_content（如果不存在）。
-        new_content_lines = []
-        split_content_lines = md_split.page_content.strip().split('\n')
-        for split_content_line in split_content_lines:
-            if re.match(r'^#{1,6}\s+.+', split_content_line):
-                new_content_lines.append(
-                    insert_entity_content_after_header_symbol(split_content_line, extend_entity_content))
-            else:
-                new_content_lines.append(split_content_line)
-
-        new_chunk_content = '\n'.join(new_content_lines)
-        new_chunk_content = f"{extend_entity_content_full}{new_chunk_content}"
-        chunk_content_size = len(new_chunk_content)
-        results.append(
-            {
-                "tokens": chunk_content_size,
-                "content": new_chunk_content,
-                "chunk_order_index": chunk_order_index,
-            }
-        )
-        chunk_order_index += chunk_content_size
-    return results
-
-
-def _chunking_text_by_markerdown_header_loop(
-        max_token_size: int,
-        header_level: int,
-        content: str,
-        chunk_header_level: int,
-) -> list:
-    content_splits = []
-    header = str("#" * header_level)
-    header_text = f"Header {header_level}"
-    # 按标题分割内容
-    markdown_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=[(header, header_text)],
-        strip_headers=False,
-    )
-    md_splits = markdown_splitter.split_text(content)
-    # 递归处理分块内容
-    md_loop_splits = _chunking_list_by_markerdown_header_loop(
-        max_token_size=max_token_size,
-        header_level=header_level + 1,
-        contents=md_splits,
-        chunk_header_level=chunk_header_level,
-    )
-    content_splits.extend(md_loop_splits)
-    return content_splits
-
-
-def _chunking_list_by_markerdown_header_loop(
-        max_token_size: int,
-        header_level: int,
-        contents: list,
-        chunk_header_level: int,
-) -> list:
-    if header_level > chunk_header_level:
-        return contents
-
-    content_splits = []
-    for content in contents:
-        # 循环判断被首次分割的内容，如果超过制定长度，再利用下级标题进行切割
-        if len(content.page_content) > max_token_size:
-            header_title = ''
-            # 截取content.page_content第一行，判断是否是标题，如果是赋值给header_title
-            header_line = content.page_content.split("\n")[0]
-            header_line_is_title = re.match(r"^#{1,6}\s+.+$", header_line)
-            if header_line_is_title:
-                header_title = header_line.strip()
-
-            # 按下一级标题分割
-            header = str("#" * header_level)
-            header_text = f"Header {header_level}"
-            markdown_splitter = MarkdownHeaderTextSplitter(
-                headers_to_split_on=[(header, header_text)],
-                strip_headers=False,
-            )
-            md_splits = markdown_splitter.split_text(content.page_content)
-            # 保留上级标题
-            for idx, md_split in enumerate(md_splits):
-                if idx > 0:
-                    md_split.page_content = f"{header_title}\n{md_split.page_content}"
-            md_loop_splits = _chunking_list_by_markerdown_header_loop(
-                max_token_size=max_token_size,
-                header_level=header_level + 1,
-                contents=md_splits,
-                chunk_header_level=chunk_header_level,
-            )
-            content_splits.extend(md_loop_splits)
-        else:
-            content_splits.append(content)
-    return content_splits
-
-
-def insert_entity_content_after_header_symbol(text: str, extend_entity_content: str) -> str:
-    """在Markdown标题符号和标题内容之间插入extend_entity_content，如果内容已存在则不插入"""
-    if match := re.match(r'^(#{1,6})\s+(.+)$', text):
-        header_symbols, header_content = match.groups()
-        # 去除extend_entity_content末尾的换行符进行比较
-        entity_content_without_newline = extend_entity_content.rstrip('\n')
-        # 检查标题内容中是否已经包含相同的实体内容
-        if entity_content_without_newline not in header_content:
-            return f"{header_symbols} {extend_entity_content}[{header_content}]"
-    return text
-
-
-def chunking_by_markdown_text(
-        content: str, overlap_token_size=128, max_token_size=1024,
-        extend_entity_title: str = '',
-        extend_entity_sn: str = '',
-):
-    extend_entity_content_full = f"{extend_entity_sn} 《{extend_entity_title}》\n"
-    extend_entity_content = f"[{extend_entity_title}]-"
-    results = []
-    # 用Markdown的文本分割器进行分割
-    markdown_splitter = MarkdownTextSplitter(
-        chunk_size=max_token_size, chunk_overlap=overlap_token_size
-    )
-    md_splits = markdown_splitter.split_text(content)
-    chunk_order_index = 0
-    for md_split in md_splits:
-        # 在每一级标题符号后插入 extend_entity_content（如果不存在）。
-        new_content_lines = []
-        split_content_lines = md_split.strip().split('\n')
-        for split_content_line in split_content_lines:
-            if re.match(r'^#{1,6}\s+.+', split_content_line):
-                new_content_lines.append(
-                    insert_entity_content_after_header_symbol(split_content_line, extend_entity_content))
-            else:
-                new_content_lines.append(split_content_line)
-
-        new_chunk_content = '\n'.join(new_content_lines)
-        new_chunk_content = f"{extend_entity_content_full}{new_chunk_content}"
-        chunk_content_size = len(new_chunk_content)
-        results.append(
-            {
-                "tokens": chunk_content_size,
-                "content": new_chunk_content,
-                "chunk_order_index": chunk_order_index,
-            }
-        )
-        chunk_order_index += chunk_content_size
     return results
 
 
@@ -555,8 +333,15 @@ async def extract_entities(
     examples = examples.format(**example_context_base)
 
     # 自定义新增 主实体编号、名称 by bumaple 2024-12-03
-    extend_entity_sn = global_config["extend_entity_sn"]
-    extend_entity_title = global_config["extend_entity_title"]
+    chunking_func_kwargs = global_config['chunking_func_kwargs']
+    if "extend_entity_sn" in chunking_func_kwargs:
+        extend_entity_sn = chunking_func_kwargs["extend_entity_sn"]
+    else:
+        extend_entity_sn = ""
+    if "extend_entity_title" in chunking_func_kwargs:
+        extend_entity_title = chunking_func_kwargs["extend_entity_title"]
+    else:
+        extend_entity_title = ""
 
     entity_extract_prompt = PROMPTS["entity_extraction"]
     context_base = dict(

@@ -43,7 +43,7 @@ class Neo4JStorage(BaseGraphStorage):
         URI = os.environ["NEO4J_URI"]
         USERNAME = os.environ["NEO4J_USERNAME"]
         PASSWORD = os.environ["NEO4J_PASSWORD"]
-        MAX_CONNECTION_POOL_SIZE = os.environ.get("NEO4J_MAX_CONNECTION_POOL_SIZE", 800)
+        MAX_CONNECTION_POOL_SIZE = int(os.environ.get("NEO4J_MAX_CONNECTION_POOL_SIZE", 800))
         DATABASE = os.environ.get(
             "NEO4J_DATABASE"
         )  # If this param is None, the home database will be used. If it is not None, the specified database will be used.
@@ -51,13 +51,12 @@ class Neo4JStorage(BaseGraphStorage):
         # 增加默认参数 by bumaple 2025-01-10
         self._timeout = 600
         self._check_timeout = 30
-        self._conn_pool_size = 50
 
         self._driver: AsyncDriver = AsyncGraphDatabase.driver(
             URI, auth=(USERNAME, PASSWORD),
+            max_connection_pool_size=MAX_CONNECTION_POOL_SIZE,
             connection_acquisition_timeout=self._timeout,
             max_connection_lifetime=self._timeout * 6,
-            max_connection_pool_size=self._conn_pool_size,
             connection_timeout=self._check_timeout,
             liveness_check_timeout=self._check_timeout,
         )
@@ -375,7 +374,7 @@ class Neo4JStorage(BaseGraphStorage):
         seen_nodes = set()
         seen_edges = set()
 
-        async with self._driver.session(database=self._DATABASE) as session:
+        async with self._driver.session(database=self._DATABASE, connection_acquisition_timeout=self._timeout) as session:
             try:
                 # Critical debug step: first verify if starting node exists
                 validate_query = f"MATCH (n:`{label}`) RETURN n LIMIT 1"
@@ -477,7 +476,7 @@ class Neo4JStorage(BaseGraphStorage):
             RETURN a, r, b,
                    CASE WHEN startNode(r) = a THEN 'OUTGOING' ELSE 'INCOMING' END AS direction
             """
-            async with self._driver.session(database=self._DATABASE) as session:
+            async with self._driver.session(database=self._DATABASE, connection_acquisition_timeout=self._timeout) as session:
                 results = await session.run(query)
                 async for record in results:
                     # Handle edges
@@ -513,7 +512,7 @@ class Neo4JStorage(BaseGraphStorage):
         Returns:
             ["Person", "Company", ...]  # Alphabetically sorted label list
         """
-        async with self._driver.session(database=self._DATABASE) as session:
+        async with self._driver.session(database=self._DATABASE, connection_acquisition_timeout=self._timeout) as session:
             # Method 1: Direct metadata query (Available for Neo4j 4.3+)
             # query = "CALL db.labels() YIELD label RETURN label"
 

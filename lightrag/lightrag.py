@@ -8,8 +8,6 @@ from typing import Type, cast, Dict
 
 from .operate import (
     chunking_by_token_size,
-    chunking_by_markdown_header,
-    chunking_by_markdown_text,
     extract_entities,
     # local_query,global_query,hybrid_query,
     kg_query,
@@ -35,13 +33,6 @@ from .base import (
     StorageNameSpace,
     QueryParam,
     DocStatus,
-)
-
-from .storage import (
-    JsonKVStorage,
-    NanoVectorDBStorage,
-    NetworkXStorage,
-    JsonDocStatusStorage,
 )
 
 from .prompt_cn import GRAPH_FIELD_SEP
@@ -185,14 +176,6 @@ class LightRAG:
     addon_params: dict = field(default_factory=dict)
     convert_response_to_json_func: callable = convert_response_to_json
 
-    # 自定义新增 主实体编号、名称 by bumaple 2024-12-03
-    extend_entity_title: str = ''
-    extend_entity_sn: str = ''
-    # 自定义新增 块类型 by bumaple 2024-12-11
-    chunk_type: str = 'token_size'
-    # 自定义新增 块标题层级 by bumaple 2024-12-11
-    chunk_header_level: int = 2
-
     # Add new field for document status storage type
     doc_status_storage: str = field(default="JsonDocStatusStorage")
 
@@ -204,9 +187,7 @@ class LightRAG:
         os.makedirs(self.log_dir, exist_ok=True)
         log_file = os.path.join(self.log_dir, "lightrag.log")
         set_logger(log_file, self.log_level)
-        # set_logger(log_file)
 
-        logger.setLevel(self.log_level)
         logger.info(f"Logger initialized for working directory: {self.working_dir}")
         if not os.path.exists(self.working_dir):
             logger.info(f"Creating working directory {self.working_dir}")
@@ -435,51 +416,21 @@ class LightRAG:
                     await self.doc_status.upsert({doc_id: doc_status})
 
                     # Generate chunks from document
-                    if self.chunk_type == "markdown_header":
-                        chunks = {
-                            compute_mdhash_id(dp["content"], prefix="chunk-"): {
-                                **dp,
-                                "full_doc_id": doc_id,
-                            }
-                            for dp in chunking_by_markdown_header(
-                                doc["content"],
-                                overlap_token_size=self.chunk_overlap_token_size,
-                                max_token_size=self.chunk_token_size,
-                                extend_entity_title=self.extend_entity_title,
-                                extend_entity_sn=self.extend_entity_sn,
-                                chunk_header_level=self.chunk_header_level,
-                            )
+                    chunks = {
+                        compute_mdhash_id(dp["content"], prefix="chunk-"): {
+                            **dp,
+                            "full_doc_id": doc_id,
                         }
-                    elif self.chunk_type == "markdown_text":
-                        chunks = {
-                            compute_mdhash_id(dp["content"], prefix="chunk-"): {
-                                **dp,
-                                "full_doc_id": doc_id,
-                            }
-                            for dp in chunking_by_markdown_text(
-                                doc["content"],
-                                overlap_token_size=self.chunk_overlap_token_size,
-                                max_token_size=self.chunk_token_size,
-                                extend_entity_title=self.extend_entity_title,
-                                extend_entity_sn=self.extend_entity_sn,
-                            )
-                        }
-                    else:
-                        chunks = {
-                            compute_mdhash_id(dp["content"], prefix="chunk-"): {
-                                **dp,
-                                "full_doc_id": doc_id,
-                            }
-                            for dp in self.chunking_func(
-                                doc["content"],
-                                split_by_character=split_by_character,
-                                split_by_character_only=split_by_character_only,
-                                overlap_token_size=self.chunk_overlap_token_size,
-                                max_token_size=self.chunk_token_size,
-                                tiktoken_model=self.tiktoken_model_name,
-                                **self.chunking_func_kwargs,
-                            )
-                        }
+                        for dp in self.chunking_func(
+                            doc["content"],
+                            split_by_character=split_by_character,
+                            split_by_character_only=split_by_character_only,
+                            overlap_token_size=self.chunk_overlap_token_size,
+                            max_token_size=self.chunk_token_size,
+                            tiktoken_model=self.tiktoken_model_name,
+                            **self.chunking_func_kwargs,
+                        )
+                    }
 
                     # Update status with chunks information
                     doc_status.update(
