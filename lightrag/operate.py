@@ -1754,7 +1754,7 @@ async def kg_query_with_keywords(
     )
     return response
 
-async def refactor_query(
+async def refactor_query_content(
     query,
     knowledge_graph_inst: BaseGraphStorage,
     entities_vdb: BaseVectorStorage,

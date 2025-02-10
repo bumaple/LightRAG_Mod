@@ -15,6 +15,7 @@ from .operate import (
     mix_kg_vector_query,
     extract_keywords_only,
     kg_query_with_keywords,
+    refactor_query_content
 )
 
 from .utils import (
@@ -1458,7 +1459,7 @@ class LightRAG:
         return loop.run_until_complete(self.refactor_aquery(query, param))
 
     async def refactor_aquery(self, query: str, param: QueryParam = QueryParam()):
-        response = await refactor_query(
+        response = await refactor_query_content(
             query,
             self.chunk_entity_relation_graph,
             self.entities_vdb,
