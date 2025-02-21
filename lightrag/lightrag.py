@@ -1,5 +1,6 @@
 import asyncio
 import os
+import hashlib
 from tqdm.asyncio import tqdm as tqdm_async
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -132,10 +133,16 @@ class LightRAG:
     log_level: str = field(default=current_log_level)
     log_dir: str = field(default=os.getcwd())
 
+    # tiktoken 需要访问互联网，设置本地缓存，避免访问互联网导致无法使用 by bumaple 2025-02-14
+    # https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken
+    tiktoken_encoding_name: str = field(default="o200k_base")
+    # cache_key: str = field(default="fb374d419588a4632f3f557e76b4b70aebbca790")
+    tiktoken_cache_dir: str = field(default="./models")
+
     # text chunking
     chunk_token_size: int = 1200
     chunk_overlap_token_size: int = 100
-    tiktoken_model_name: str = "gpt-4o-mini"
+    tiktoken_model_name: str = "gpt-4o"
 
     # entity extraction
     entity_extract_max_gleaning: int = 1
@@ -188,6 +195,22 @@ class LightRAG:
         os.makedirs(self.log_dir, exist_ok=True)
         log_file = os.path.join(self.log_dir, "lightrag.log")
         set_logger(log_file, self.log_level)
+
+        blobpath = f"https://openaipublic.blob.core.windows.net/encodings/{self.tiktoken_encoding_name}.tiktoken"
+        cache_key = hashlib.sha1(blobpath.encode()).hexdigest()
+        if self.tiktoken_cache_dir is None or len(self.tiktoken_cache_dir) == 0:
+            if "TIKTOKEN_CACHE_DIR" in os.environ:
+                self.tiktoken_cache_dir = os.environ["TIKTOKEN_CACHE_DIR"]
+            elif "DATA_GYM_CACHE_DIR" in os.environ:
+                self.tiktoken_cache_dir = os.environ["DATA_GYM_CACHE_DIR"]
+            else:
+                self.tiktoken_cache_dir = os.path.join(tempfile.gettempdir(), "data-gym-cache")
+        else:
+            os.environ["TIKTOKEN_CACHE_DIR"] = self.tiktoken_cache_dir
+
+        if not os.path.exists(os.path.join(self.tiktoken_cache_dir, cache_key)):
+            logger.error(
+                f"[{self.tiktoken_encoding_name}]的本地缓存不存在，请手动下载[https://openaipublic.blob.core.windows.net/encodings/{self.tiktoken_cache_name}.tiktoken]到[{tiktoken_cache_dir}]目录并命名为[{cache_key}]")
 
         logger.info(f"Logger initialized for working directory: {self.working_dir}")
         if not os.path.exists(self.working_dir):

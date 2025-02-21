@@ -38,7 +38,7 @@ statistic_data = {"llm_call": 0, "llm_cache": 0, "embed_call": 0}
 logger = loguru.logger
 
 # Set httpx logging level to WARNING
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # def set_logger(log_file: str):
@@ -193,6 +193,7 @@ def encode_string_by_tiktoken(content: str, model_name: str = "gpt-4o"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
+        # ENCODER = tiktoken.get_encoding("o200k_base")
     tokens = ENCODER.encode(content)
     return tokens
 
@@ -201,6 +202,7 @@ def decode_tokens_by_tiktoken(tokens: list[int], model_name: str = "gpt-4o"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
+        # ENCODER = tiktoken.get_encoding("o200k_base")
     content = ENCODER.decode(tokens)
     return content
 
@@ -386,6 +388,7 @@ def process_combine_contexts(hl, ll):
 
 async def get_best_cached_response(
     hashing_kv,
+    args_hash,
     current_embedding,
     similarity_threshold=0.95,
     mode="default",
@@ -397,7 +400,10 @@ async def get_best_cached_response(
     logger.debug(
         f"get_best_cached_response:  mode={mode} cache_type={cache_type} use_llm_check={use_llm_check}"
     )
-    mode_cache = await hashing_kv.get_by_id(mode)
+    if exists_func(hashing_kv, "get_by_mode_cachetype"):
+        mode_cache = await hashing_kv.get_by_mode_cachetype(mode, cache_type)
+    else:
+        mode_cache = await hashing_kv.get_by_id(mode)
     if not mode_cache:
         return None
 
@@ -543,6 +549,7 @@ async def handle_cache(
             quantized, min_val, max_val = quantize_embedding(current_embedding[0])
             best_cached_response = await get_best_cached_response(
                 hashing_kv,
+                args_hash,
                 current_embedding[0],
                 similarity_threshold=embedding_cache_config["similarity_threshold"],
                 mode=mode,
