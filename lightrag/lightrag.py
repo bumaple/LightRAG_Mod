@@ -1,6 +1,7 @@
 import asyncio
 import os
 import hashlib
+import tempfile
 from tqdm.asyncio import tqdm as tqdm_async
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
