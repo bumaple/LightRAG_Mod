@@ -211,7 +211,7 @@ class LightRAG:
 
         if not os.path.exists(os.path.join(self.tiktoken_cache_dir, cache_key)):
             logger.error(
-                f"[{self.tiktoken_encoding_name}]的本地缓存不存在，请手动下载[https://openaipublic.blob.core.windows.net/encodings/{self.tiktoken_cache_name}.tiktoken]到[{tiktoken_cache_dir}]目录并命名为[{cache_key}]")
+                f"[{self.tiktoken_encoding_name}]的本地缓存不存在，请手动下载[https://openaipublic.blob.core.windows.net/encodings/{self.tiktoken_encoding_name}.tiktoken]到[{self.tiktoken_cache_dir}]目录并命名为[{cache_key}]")
 
         logger.info(f"Logger initialized for working directory: {self.working_dir}")
         if not os.path.exists(self.working_dir):
