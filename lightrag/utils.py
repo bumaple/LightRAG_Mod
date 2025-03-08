@@ -532,15 +532,16 @@ async def handle_cache(
     ):
         return None, None, None, None
 
-    if mode != "default":
-        # Get embedding cache configuration
-        embedding_cache_config = hashing_kv.global_config.get(
-            "embedding_cache_config",
-            {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False},
-        )
-        is_embedding_cache_enabled = embedding_cache_config["enabled"]
-        use_llm_check = embedding_cache_config.get("use_llm_check", False)
+    # Get embedding cache configuration
+    embedding_cache_config = hashing_kv.global_config.get(
+        "embedding_cache_config",
+        {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False, "query_cache_delay": 0},
+    )
+    is_embedding_cache_enabled = embedding_cache_config["enabled"]
+    use_llm_check = embedding_cache_config.get("use_llm_check", False)
+    query_cache_delay = embedding_cache_config.get("query_cache_delay", 0)
 
+    if mode != "default":
         quantized = min_val = max_val = None
         if is_embedding_cache_enabled:
             # Use embedding cache
@@ -570,6 +571,9 @@ async def handle_cache(
     else:
         mode_cache = await hashing_kv.get_by_id(mode) or {}
     if args_hash in mode_cache:
+        if query_cache_delay > 0:
+            # 避免返回太快，休眠10秒
+            await asyncio.sleep(10)
         return mode_cache[args_hash]["return"], None, None, None
 
     return None, None, None, None
