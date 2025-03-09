@@ -573,7 +573,7 @@ async def handle_cache(
     if args_hash in mode_cache:
         if query_cache_delay > 0:
             # 避免返回太快，休眠10秒
-            await asyncio.sleep(10)
+            await asyncio.sleep(query_cache_delay)
         return mode_cache[args_hash]["return"], None, None, None
 
     return None, None, None, None
