@@ -91,7 +91,7 @@ class MongoKVStorage(BaseKVStorage):
             for result in results:
                 key = result["_id"]
                 res[key] = result
-                return res
+            return res
         else:
             return None
 

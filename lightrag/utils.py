@@ -142,8 +142,11 @@ def compute_args_hash(*args, cache_type: str = None) -> str:
     if cache_type:
         args_str = f"{cache_type}:{args_str}"
 
+    hash_code = hashlib.md5(args_str.encode()).hexdigest()
+
+    logger.info(f"Hash内容:[{args_str}] Hash结果:[{hash_code}]")
     # Compute MD5 hash
-    return hashlib.md5(args_str.encode()).hexdigest()
+    return hash_code
 
 
 def compute_mdhash_id(content, prefix: str = ""):
@@ -397,7 +400,7 @@ async def get_best_cached_response(
     original_prompt=None,
     cache_type=None,
 ) -> Union[str, None]:
-    logger.debug(
+    logger.info(
         f"get_best_cached_response:  mode={mode} cache_type={cache_type} use_llm_check={use_llm_check}"
     )
     if exists_func(hashing_kv, "get_by_mode_cachetype"):
@@ -535,11 +538,10 @@ async def handle_cache(
     # Get embedding cache configuration
     embedding_cache_config = hashing_kv.global_config.get(
         "embedding_cache_config",
-        {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False, "query_cache_delay": 0},
+        {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False},
     )
     is_embedding_cache_enabled = embedding_cache_config["enabled"]
     use_llm_check = embedding_cache_config.get("use_llm_check", False)
-    query_cache_delay = embedding_cache_config.get("query_cache_delay", 0)
 
     if mode != "default":
         quantized = min_val = max_val = None
@@ -560,8 +562,12 @@ async def handle_cache(
                 cache_type=cache_type,
             )
             if best_cached_response is not None:
+                logger.info(
+                    f"相似度匹配缓存[命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
                 return best_cached_response, None, None, None
             else:
+                logger.info(
+                    f"相似度匹配缓存[未命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
                 return None, quantized, min_val, max_val
 
     # For default mode(extract_entities or naive query) or is_embedding_cache_enabled is False
@@ -571,10 +577,10 @@ async def handle_cache(
     else:
         mode_cache = await hashing_kv.get_by_id(mode) or {}
     if args_hash in mode_cache:
-        if query_cache_delay > 0:
-            # 避免返回太快，休眠10秒
-            await asyncio.sleep(query_cache_delay)
+        logger.info(f"全文匹配缓存[命中] [{mode}_{args_hash}]")
         return mode_cache[args_hash]["return"], None, None, None
+    else:
+        logger.info(f"全文匹配缓存[未命中] [{mode}_{args_hash}]")
 
     return None, None, None, None
 
@@ -595,6 +601,8 @@ async def save_to_cache(hashing_kv, cache_data: CacheData):
     if hashing_kv is None or hasattr(cache_data.content, "__aiter__"):
         return
 
+    # if exists_func(hashing_kv, "get_by_mode_cachetype"):
+    #     mode_cache = await hashing_kv.get_by_mode_cachetype(cache_data.mode, cache_data.cache_type) or {}
     if exists_func(hashing_kv, "get_by_mode_and_id"):
         mode_cache = (
             await hashing_kv.get_by_mode_and_id(cache_data.mode, cache_data.args_hash)
