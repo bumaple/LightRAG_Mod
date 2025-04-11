@@ -1,59 +1,190 @@
+from __future__ import annotations
+
 import asyncio
 import html
 import io
 import csv
 import json
 import logging
+import logging.handlers
 import os
 import re
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5
-from typing import Any, Union, List, Optional
+from typing import Any, Callable, TYPE_CHECKING
 import xml.etree.ElementTree as ET
-import bs4
-
 import numpy as np
 import tiktoken
 import loguru
 
 from lightrag.prompt import PROMPTS
+from dotenv import load_dotenv
+
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from lightrag.base import BaseKVStorage
+
+# use the .env that is inside the current folder
+# allows to use different .env file for each lightrag instance
+# the OS environment variables take precedence over the .env file
+load_dotenv(dotenv_path=".env", override=False)
+
+VERBOSE_DEBUG = os.getenv("VERBOSE", "false").lower() == "true"
 
 
-class UnlimitedSemaphore:
-    """A context manager that allows unlimited access."""
+def verbose_debug(msg: str, *args, **kwargs):
+    """Function for outputting detailed debug information.
+    When VERBOSE_DEBUG=True, outputs the complete message.
+    When VERBOSE_DEBUG=False, outputs only the first 50 characters.
 
-    async def __aenter__(self):
-        pass
+    Args:
+        msg: The message format string
+        *args: Arguments to be formatted into the message
+        **kwargs: Keyword arguments passed to logger.debug()
+    """
+    if VERBOSE_DEBUG:
+        logger.debug(msg, *args, **kwargs)
+    else:
+        # Format the message with args first
+        if args:
+            formatted_msg = msg % args
+        else:
+            formatted_msg = msg
+        # Then truncate the formatted message
+        truncated_msg = (
+            formatted_msg[:100] + "..." if len(formatted_msg) > 100 else formatted_msg
+        )
+        logger.debug(truncated_msg, **kwargs)
 
-    async def __aexit__(self, exc_type, exc, tb):
-        pass
 
+def set_verbose_debug(enabled: bool):
+    """Enable or disable verbose debug output"""
+    global VERBOSE_DEBUG
+    VERBOSE_DEBUG = enabled
 
-ENCODER = None
 
 statistic_data = {"llm_call": 0, "llm_cache": 0, "embed_call": 0}
 
+# Initialize logger
 # logger = logging.getLogger("lightrag")
-logger = loguru.logger
+# logger.propagate = False  # prevent log message send to root loggger
+# Let the main application configure the handlers
+# logger.setLevel(logging.INFO)
 
 # Set httpx logging level to WARNING
 # logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = loguru.logger
 
 
-# def set_logger(log_file: str):
-#     logger.setLevel(logging.DEBUG)
+class LightragPathFilter(logging.Filter):
+    """Filter for lightrag logger to filter out frequent path access logs"""
+
+    def __init__(self):
+        super().__init__()
+        # Define paths to be filtered
+        self.filtered_paths = [
+            "/documents",
+            "/health",
+            "/webui/",
+            "/documents/pipeline_status",
+        ]
+        # self.filtered_paths = ["/health", "/webui/"]
+
+    def filter(self, record):
+        try:
+            # Check if record has the required attributes for an access log
+            if not hasattr(record, "args") or not isinstance(record.args, tuple):
+                return True
+            if len(record.args) < 5:
+                return True
+
+            # Extract method, path and status from the record args
+            method = record.args[1]
+            path = record.args[2]
+            status = record.args[4]
+
+            # Filter out successful GET requests to filtered paths
+            if (
+                method == "GET"
+                and (status == 200 or status == 304)
+                and path in self.filtered_paths
+            ):
+                return False
+
+            return True
+        except Exception:
+            # In case of any error, let the message through
+            return True
+
+
+# def setup_logger(
+#     logger_name: str,
+#     level: str = "INFO",
+#     add_filter: bool = False,
+#     log_file_path: str | None = None,
+#     enable_file_logging: bool = True,
+# ):
+#     """Set up a logger with console and optionally file handlers
 #
-#     file_handler = logging.FileHandler(log_file, encoding="utf-8")
-#     file_handler.setLevel(logging.DEBUG)
-#
-#     formatter = logging.Formatter(
+#     Args:
+#         logger_name: Name of the logger to set up
+#         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+#         add_filter: Whether to add LightragPathFilter to the logger
+#         log_file_path: Path to the log file. If None and file logging is enabled, defaults to lightrag.log in LOG_DIR or cwd
+#         enable_file_logging: Whether to enable logging to a file (defaults to True)
+#     """
+#     # Configure formatters
+#     detailed_formatter = logging.Formatter(
 #         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 #     )
-#     file_handler.setFormatter(formatter)
+#     simple_formatter = logging.Formatter("%(levelname)s: %(message)s")
 #
-#     if not logger.handlers:
-#         logger.addHandler(file_handler)
+#     logger_instance = logging.getLogger(logger_name)
+#     logger_instance.setLevel(level)
+#     logger_instance.handlers = []  # Clear existing handlers
+#     logger_instance.propagate = False
+#
+#     # Add console handler
+#     console_handler = logging.StreamHandler()
+#     console_handler.setFormatter(simple_formatter)
+#     console_handler.setLevel(level)
+#     logger_instance.addHandler(console_handler)
+#
+#     # Add file handler by default unless explicitly disabled
+#     if enable_file_logging:
+#         # Get log file path
+#         if log_file_path is None:
+#             log_dir = os.getenv("LOG_DIR", os.getcwd())
+#             log_file_path = os.path.abspath(os.path.join(log_dir, "lightrag.log"))
+#
+#         # Ensure log directory exists
+#         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+#
+#         # Get log file max size and backup count from environment variables
+#         log_max_bytes = int(os.getenv("LOG_MAX_BYTES", 10485760))  # Default 10MB
+#         log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", 5))  # Default 5 backups
+#
+#         try:
+#             # Add file handler
+#             file_handler = logging.handlers.RotatingFileHandler(
+#                 filename=log_file_path,
+#                 maxBytes=log_max_bytes,
+#                 backupCount=log_backup_count,
+#                 encoding="utf-8",
+#             )
+#             file_handler.setFormatter(detailed_formatter)
+#             file_handler.setLevel(level)
+#             logger_instance.addHandler(file_handler)
+#         except PermissionError as e:
+#             logger.warning(f"Could not create log file at {log_file_path}: {str(e)}")
+#             logger.warning("Continuing with console logging only")
+#
+#     # Add path filter if requested
+#     if add_filter:
+#         path_filter = LightragPathFilter()
+#         logger_instance.addFilter(path_filter)
+
 
 def set_logger(log_file: str, log_level: str = "INFO"):
     """
@@ -72,6 +203,20 @@ def set_logger(log_file: str, log_level: str = "INFO"):
                encoding="utf-8", enqueue=True, colorize=False, backtrace=True, diagnose=True)
 
 
+
+class UnlimitedSemaphore:
+    """A context manager that allows unlimited access."""
+
+    async def __aenter__(self):
+        pass
+
+    async def __aexit__(self, exc_type, exc, tb):
+        pass
+
+
+ENCODER = None
+
+
 @dataclass
 class EmbeddingFunc:
     embedding_dim: int
@@ -83,14 +228,7 @@ class EmbeddingFunc:
         return await self.func(*args, **kwargs)
 
 
-@dataclass
-class ReasoningResponse:
-    reasoning_content: str
-    response_content: str
-    tag: str
-
-
-def locate_json_string_body_from_string(content: str) -> Union[str, None]:
+def locate_json_string_body_from_string(content: str) -> str | None:
     """Locate the JSON string body from a string"""
     try:
         maybe_json_str = re.search(r"{.*}", content, re.DOTALL)
@@ -116,7 +254,7 @@ def locate_json_string_body_from_string(content: str) -> Union[str, None]:
         return None
 
 
-def convert_response_to_json(response: str) -> dict:
+def convert_response_to_json(response: str) -> dict[str, Any]:
     json_str = locate_json_string_body_from_string(response)
     assert json_str is not None, f"Unable to parse JSON from response: {response}"
     try:
@@ -127,7 +265,7 @@ def convert_response_to_json(response: str) -> dict:
         raise e from None
 
 
-def compute_args_hash(*args, cache_type: str = None) -> str:
+def compute_args_hash(*args: Any, cache_type: str | None = None) -> str:
     """Compute a hash for the given arguments.
     Args:
         *args: Arguments to hash
@@ -149,7 +287,12 @@ def compute_args_hash(*args, cache_type: str = None) -> str:
     return hash_code
 
 
-def compute_mdhash_id(content, prefix: str = ""):
+def compute_mdhash_id(content: str, prefix: str = "") -> str:
+    """
+    Compute a unique ID for a given content string.
+
+    The ID is a combination of the given prefix and the MD5 hash of the content string.
+    """
     return prefix + md5(content.encode()).hexdigest()
 
 
@@ -196,7 +339,6 @@ def encode_string_by_tiktoken(content: str, model_name: str = "gpt-4o"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
-        # ENCODER = tiktoken.get_encoding("o200k_base")
     tokens = ENCODER.encode(content)
     return tokens
 
@@ -205,7 +347,6 @@ def decode_tokens_by_tiktoken(tokens: list[int], model_name: str = "gpt-4o"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
-        # ENCODER = tiktoken.get_encoding("o200k_base")
     content = ENCODER.decode(tokens)
     return content
 
@@ -221,6 +362,7 @@ def split_string_by_multi_markers(content: str, markers: list[str]) -> list[str]
     """Split a string by multiple markers"""
     if not markers:
         return [content]
+    content = content if content is not None else ""
     results = re.split("|".join(re.escape(marker) for marker in markers), content)
     return [r.strip() for r in results if r.strip()]
 
@@ -238,11 +380,13 @@ def clean_str(input: Any) -> str:
     return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", result)
 
 
-def is_float_regex(value):
+def is_float_regex(value: str) -> bool:
     return bool(re.match(r"^[-+]?[0-9]*\.?[0-9]+$", value))
 
 
-def truncate_list_by_token_size(list_data: list, key: callable, max_token_size: int):
+def truncate_list_by_token_size(
+    list_data: list[Any], key: Callable[[Any], str], max_token_size: int
+) -> list[int]:
     """Truncate a list of data by token size"""
     if max_token_size <= 0:
         return []
@@ -254,7 +398,7 @@ def truncate_list_by_token_size(list_data: list, key: callable, max_token_size: 
     return list_data
 
 
-def list_of_list_to_csv(data: List[List[str]]) -> str:
+def list_of_list_to_csv(data: list[list[str]]) -> str:
     output = io.StringIO()
     writer = csv.writer(
         output,
@@ -267,7 +411,7 @@ def list_of_list_to_csv(data: List[List[str]]) -> str:
     return output.getvalue()
 
 
-def csv_string_to_list(csv_string: str) -> List[List[str]]:
+def csv_string_to_list(csv_string: str) -> list[list[str]]:
     # Clean the string by removing NUL characters
     cleaned_string = csv_string.replace("\0", "")
 
@@ -352,7 +496,7 @@ def xml_to_json(xml_file):
         return None
 
 
-def process_combine_contexts(hl, ll):
+def process_combine_contexts(hl: str, ll: str):
     header = None
     list_hl = csv_string_to_list(hl.strip())
     list_ll = csv_string_to_list(ll.strip())
@@ -391,7 +535,6 @@ def process_combine_contexts(hl, ll):
 
 async def get_best_cached_response(
     hashing_kv,
-    args_hash,
     current_embedding,
     similarity_threshold=0.95,
     mode="default",
@@ -399,14 +542,15 @@ async def get_best_cached_response(
     llm_func=None,
     original_prompt=None,
     cache_type=None,
-) -> Union[str, None]:
-    logger.info(
+) -> str | None:
+    logger.debug(
         f"get_best_cached_response:  mode={mode} cache_type={cache_type} use_llm_check={use_llm_check}"
     )
-    if exists_func(hashing_kv, "get_by_mode_cachetype"):
-        mode_cache = await hashing_kv.get_by_mode_cachetype(mode, cache_type)
-    else:
-        mode_cache = await hashing_kv.get_by_id(mode)
+    # if exists_func(hashing_kv, "get_by_mode_cachetype"):
+    #     mode_cache = await hashing_kv.get_by_mode_cachetype(mode, cache_type)
+    # else:
+    #     mode_cache = await hashing_kv.get_by_id(mode)
+    mode_cache = await hashing_kv.get_by_id(mode)
     if not mode_cache:
         return None
 
@@ -443,7 +587,13 @@ async def get_best_cached_response(
 
     if best_similarity > similarity_threshold:
         # If LLM check is enabled and all required parameters are provided
-        if use_llm_check and llm_func and original_prompt and best_prompt:
+        if (
+            use_llm_check
+            and llm_func
+            and original_prompt
+            and best_prompt
+            and best_response is not None
+        ):
             compare_prompt = PROMPTS["similarity_check"].format(
                 original_prompt=original_prompt, cached_prompt=best_prompt
             )
@@ -457,7 +607,9 @@ async def get_best_cached_response(
                 best_similarity = llm_similarity
                 if best_similarity < similarity_threshold:
                     log_data = {
-                        "event": "llm_check_cache_rejected",
+                        "event": "cache_rejected_by_llm",
+                        "type": cache_type,
+                        "mode": mode,
                         "original_question": original_prompt[:100] + "..."
                         if len(original_prompt) > 100
                         else original_prompt,
@@ -467,7 +619,8 @@ async def get_best_cached_response(
                         "similarity_score": round(best_similarity, 4),
                         "threshold": similarity_threshold,
                     }
-                    logger.info(json.dumps(log_data, ensure_ascii=False))
+                    logger.debug(json.dumps(log_data, ensure_ascii=False))
+                    logger.info(f"Cache rejected by LLM(mode:{mode} tpye:{cache_type})")
                     return None
             except Exception as e:  # Catch all possible exceptions
                 logger.warning(f"LLM similarity check failed: {e}")
@@ -478,12 +631,13 @@ async def get_best_cached_response(
         )
         log_data = {
             "event": "cache_hit",
+            "type": cache_type,
             "mode": mode,
             "similarity": round(best_similarity, 4),
             "cache_id": best_cache_id,
             "original_prompt": prompt_display,
         }
-        logger.info(json.dumps(log_data, ensure_ascii=False))
+        logger.debug(json.dumps(log_data, ensure_ascii=False))
         return best_response
     return None
 
@@ -496,7 +650,7 @@ def cosine_similarity(v1, v2):
     return dot_product / (norm1 * norm2)
 
 
-def quantize_embedding(embedding: Union[np.ndarray, list], bits=8) -> tuple:
+def quantize_embedding(embedding: np.ndarray | list[float], bits: int = 8) -> tuple:
     """Quantize embedding to specified bits"""
     # Convert list to numpy array if needed
     if isinstance(embedding, list):
@@ -527,32 +681,30 @@ async def handle_cache(
     prompt,
     mode="default",
     cache_type=None,
-    force_llm_cache=False,
 ):
     """Generic cache handling function"""
-    if hashing_kv is None or not (
-        force_llm_cache or hashing_kv.global_config.get("enable_llm_cache")
-    ):
+    if hashing_kv is None:
         return None, None, None, None
 
-    # Get embedding cache configuration
-    embedding_cache_config = hashing_kv.global_config.get(
-        "embedding_cache_config",
-        {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False},
-    )
-    is_embedding_cache_enabled = embedding_cache_config["enabled"]
-    use_llm_check = embedding_cache_config.get("use_llm_check", False)
+    if mode != "default":  # handle cache for all type of query
+        if not hashing_kv.global_config.get("enable_llm_cache"):
+            return None, None, None, None
 
-    if mode != "default":
+        # Get embedding cache configuration
+        embedding_cache_config = hashing_kv.global_config.get(
+            "embedding_cache_config",
+            {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False},
+        )
+        is_embedding_cache_enabled = embedding_cache_config["enabled"]
+        use_llm_check = embedding_cache_config.get("use_llm_check", False)
+
         quantized = min_val = max_val = None
-        if is_embedding_cache_enabled:
-            # Use embedding cache
+        if is_embedding_cache_enabled:  # Use embedding simularity to match cache
             current_embedding = await hashing_kv.embedding_func([prompt])
             llm_model_func = hashing_kv.global_config.get("llm_model_func")
             quantized, min_val, max_val = quantize_embedding(current_embedding[0])
             best_cached_response = await get_best_cached_response(
                 hashing_kv,
-                args_hash,
                 current_embedding[0],
                 similarity_threshold=embedding_cache_config["similarity_threshold"],
                 mode=mode,
@@ -562,26 +714,34 @@ async def handle_cache(
                 cache_type=cache_type,
             )
             if best_cached_response is not None:
+                logger.debug(f"Embedding cached hit(mode:{mode} type:{cache_type})")
                 logger.info(
                     f"相似度匹配缓存[命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
                 return best_cached_response, None, None, None
             else:
+                # if caching keyword embedding is enabled, return the quantized embedding for saving it latter
+                logger.debug(f"Embedding cached missed(mode:{mode} type:{cache_type})")
                 logger.info(
                     f"相似度匹配缓存[未命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
                 return None, quantized, min_val, max_val
 
-    # For default mode(extract_entities or naive query) or is_embedding_cache_enabled is False
-    # Use regular cache
+    else:  # handle cache for entity extraction
+        if not hashing_kv.global_config.get("enable_llm_cache_for_entity_extract"):
+            return None, None, None, None
+
+    # Here is the conditions of code reaching this point:
+    #     1. All query mode: enable_llm_cache is True and embedding simularity is not enabled
+    #     2. Entity extract: enable_llm_cache_for_entity_extract is True
     if exists_func(hashing_kv, "get_by_mode_and_id"):
         mode_cache = await hashing_kv.get_by_mode_and_id(mode, args_hash) or {}
     else:
         mode_cache = await hashing_kv.get_by_id(mode) or {}
     if args_hash in mode_cache:
+        logger.debug(f"Non-embedding cached hit(mode:{mode} type:{cache_type})")
         logger.info(f"全文匹配缓存[命中] [{mode}_{args_hash}]")
         return mode_cache[args_hash]["return"], None, None, None
-    else:
-        logger.info(f"全文匹配缓存[未命中] [{mode}_{args_hash}]")
-
+    logger.info(f"全文匹配缓存[未命中] [{mode}_{args_hash}]")
+    logger.debug(f"Non-embedding cached missed(mode:{mode} type:{cache_type})")
     return None, None, None, None
 
 
@@ -590,19 +750,30 @@ class CacheData:
     args_hash: str
     content: str
     prompt: str
-    quantized: Optional[np.ndarray] = None
-    min_val: Optional[float] = None
-    max_val: Optional[float] = None
+    quantized: np.ndarray | None = None
+    min_val: float | None = None
+    max_val: float | None = None
     mode: str = "default"
     cache_type: str = "query"
 
 
 async def save_to_cache(hashing_kv, cache_data: CacheData):
-    if hashing_kv is None or hasattr(cache_data.content, "__aiter__"):
+    """Save data to cache, with improved handling for streaming responses and duplicate content.
+
+    Args:
+        hashing_kv: The key-value storage for caching
+        cache_data: The cache data to save
+    """
+    # Skip if storage is None or content is a streaming response
+    if hashing_kv is None or not cache_data.content:
         return
 
-    # if exists_func(hashing_kv, "get_by_mode_cachetype"):
-    #     mode_cache = await hashing_kv.get_by_mode_cachetype(cache_data.mode, cache_data.cache_type) or {}
+    # If content is a streaming response, don't cache it
+    if hasattr(cache_data.content, "__aiter__"):
+        logger.debug("Streaming response detected, skipping cache")
+        return
+
+    # Get existing cache data
     if exists_func(hashing_kv, "get_by_mode_and_id"):
         mode_cache = (
             await hashing_kv.get_by_mode_and_id(cache_data.mode, cache_data.args_hash)
@@ -611,6 +782,16 @@ async def save_to_cache(hashing_kv, cache_data: CacheData):
     else:
         mode_cache = await hashing_kv.get_by_id(cache_data.mode) or {}
 
+    # Check if we already have identical content cached
+    if cache_data.args_hash in mode_cache:
+        existing_content = mode_cache[cache_data.args_hash].get("return")
+        if existing_content == cache_data.content:
+            logger.info(
+                f"Cache content unchanged for {cache_data.args_hash}, skipping update"
+            )
+            return
+
+    # Update cache with new content
     mode_cache[cache_data.args_hash] = {
         "return": cache_data.content,
         "cache_type": cache_data.cache_type,
@@ -625,6 +806,7 @@ async def save_to_cache(hashing_kv, cache_data: CacheData):
         "original_prompt": cache_data.prompt,
     }
 
+    # Only upsert if there's actual new content
     await hashing_kv.upsert({cache_data.mode: mode_cache})
 
 
@@ -657,7 +839,9 @@ def exists_func(obj, func_name: str) -> bool:
         return False
 
 
-def get_conversation_turns(conversation_history: list[dict], num_turns: int) -> str:
+def get_conversation_turns(
+    conversation_history: list[dict[str, Any]], num_turns: int
+) -> str:
     """
     Process conversation history to get the specified number of complete turns.
 
@@ -668,9 +852,13 @@ def get_conversation_turns(conversation_history: list[dict], num_turns: int) -> 
     Returns:
         Formatted string of the conversation history
     """
+    # Check if num_turns is valid
+    if num_turns <= 0:
+        return ""
+
     # Group messages into turns
-    turns = []
-    messages = []
+    turns: list[list[dict[str, Any]]] = []
+    messages: list[dict[str, Any]] = []
 
     # First, filter out keyword extraction messages
     for msg in conversation_history:
@@ -704,7 +892,7 @@ def get_conversation_turns(conversation_history: list[dict], num_turns: int) -> 
         turns = turns[-num_turns:]
 
     # Format the turns into a string
-    formatted_turns = []
+    formatted_turns: list[str] = []
     for turn in turns:
         formatted_turns.extend(
             [f"user: {turn[0]['content']}", f"assistant: {turn[1]['content']}"]
@@ -713,26 +901,229 @@ def get_conversation_turns(conversation_history: list[dict], num_turns: int) -> 
     return "\n".join(formatted_turns)
 
 
-def extract_reasoning(response: str, tag: str) -> ReasoningResponse:
-    """Extract the reasoning section and the following section from the LLM response.
+def always_get_an_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    Ensure that there is always an event loop available.
+
+    This function tries to get the current event loop. If the current event loop is closed or does not exist,
+    it creates a new event loop and sets it as the current event loop.
+
+    Returns:
+        asyncio.AbstractEventLoop: The current or newly created event loop.
+    """
+    try:
+        # Try to get the current event loop
+        current_loop = asyncio.get_event_loop()
+        if current_loop.is_closed():
+            raise RuntimeError("Event loop is closed.")
+        return current_loop
+
+    except RuntimeError:
+        # If no event loop exists or it is closed, create a new one
+        logger.info("Creating a new event loop in main thread.")
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        return new_loop
+
+
+def lazy_external_import(module_name: str, class_name: str) -> Callable[..., Any]:
+    """Lazily import a class from an external module based on the package of the caller."""
+    # Get the caller's module and package
+    import inspect
+
+    caller_frame = inspect.currentframe().f_back
+    module = inspect.getmodule(caller_frame)
+    package = module.__package__ if module else None
+
+    def import_class(*args: Any, **kwargs: Any):
+        import importlib
+
+        module = importlib.import_module(module_name, package=package)
+        cls = getattr(module, class_name)
+        return cls(*args, **kwargs)
+
+    return import_class
+
+
+async def use_llm_func_with_cache(
+    input_text: str,
+    use_llm_func: callable,
+    llm_response_cache: "BaseKVStorage | None" = None,
+    max_tokens: int = None,
+    history_messages: list[dict[str, str]] = None,
+    cache_type: str = "extract",
+) -> str:
+    """Call LLM function with cache support
+
+    If cache is available and enabled (determined by handle_cache based on mode),
+    retrieve result from cache; otherwise call LLM function and save result to cache.
 
     Args:
-        response: LLM response
-        tag: Tag to extract
+        input_text: Input text to send to LLM
+        use_llm_func: LLM function to call
+        llm_response_cache: Cache storage instance
+        max_tokens: Maximum tokens for generation
+        history_messages: History messages list
+        cache_type: Type of cache
+
     Returns:
-        ReasoningResponse: Reasoning section and following section
-
+        LLM response text
     """
-    soup = bs4.BeautifulSoup(response, "html.parser")
+    if llm_response_cache:
+        if history_messages:
+            history = json.dumps(history_messages, ensure_ascii=False)
+            _prompt = history + "\n" + input_text
+        else:
+            _prompt = input_text
 
-    reasoning_section = soup.find(tag)
-    if reasoning_section is None:
-        return ReasoningResponse(None, response, tag)
-    reasoning_content = reasoning_section.get_text().strip()
+        arg_hash = compute_args_hash(_prompt)
+        cached_return, _1, _2, _3 = await handle_cache(
+            llm_response_cache,
+            arg_hash,
+            _prompt,
+            "default",
+            cache_type=cache_type,
+        )
+        if cached_return:
+            logger.debug(f"Found cache for {arg_hash}")
+            statistic_data["llm_cache"] += 1
+            return cached_return
+        statistic_data["llm_call"] += 1
 
-    after_reasoning_section = reasoning_section.next_sibling
-    if after_reasoning_section is None:
-        return ReasoningResponse(reasoning_content, "", tag)
-    after_reasoning_content = after_reasoning_section.get_text().strip()
+        # Call LLM
+        kwargs = {}
+        if history_messages:
+            kwargs["history_messages"] = history_messages
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
 
-    return ReasoningResponse(reasoning_content, after_reasoning_content, tag)
+        res: str = await use_llm_func(input_text, **kwargs)
+
+        # Save to cache
+        logger.info(f" == LLM cache == saving {arg_hash}")
+        await save_to_cache(
+            llm_response_cache,
+            CacheData(
+                args_hash=arg_hash,
+                content=res,
+                prompt=_prompt,
+                cache_type=cache_type,
+            ),
+        )
+        return res
+
+    # When cache is disabled, directly call LLM
+    kwargs = {}
+    if history_messages:
+        kwargs["history_messages"] = history_messages
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+
+    logger.info(f"Call LLM function with query text lenght: {len(input_text)}")
+    return await use_llm_func(input_text, **kwargs)
+
+
+def get_content_summary(content: str, max_length: int = 250) -> str:
+    """Get summary of document content
+
+    Args:
+        content: Original document content
+        max_length: Maximum length of summary
+
+    Returns:
+        Truncated content with ellipsis if needed
+    """
+    content = content.strip()
+    if len(content) <= max_length:
+        return content
+    return content[:max_length] + "..."
+
+
+def clean_text(text: str) -> str:
+    """Clean text by removing null bytes (0x00) and whitespace
+
+    Args:
+        text: Input text to clean
+
+    Returns:
+        Cleaned text
+    """
+    return text.strip().replace("\x00", "")
+
+
+def check_storage_env_vars(storage_name: str) -> None:
+    """Check if all required environment variables for storage implementation exist
+
+    Args:
+        storage_name: Storage implementation name
+
+    Raises:
+        ValueError: If required environment variables are missing
+    """
+    from lightrag.kg import STORAGE_ENV_REQUIREMENTS
+
+    required_vars = STORAGE_ENV_REQUIREMENTS.get(storage_name, [])
+    missing_vars = [var for var in required_vars if var not in os.environ]
+
+    if missing_vars:
+        raise ValueError(
+            f"Storage implementation '{storage_name}' requires the following "
+            f"environment variables: {', '.join(missing_vars)}"
+        )
+
+
+class TokenTracker:
+    """Track token usage for LLM calls."""
+
+    def __init__(self):
+        self.reset()
+
+    def __enter__(self):
+        self.reset()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print(self)
+
+    def reset(self):
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.total_tokens = 0
+        self.call_count = 0
+
+    def add_usage(self, token_counts):
+        """Add token usage from one LLM call.
+
+        Args:
+            token_counts: A dictionary containing prompt_tokens, completion_tokens, total_tokens
+        """
+        self.prompt_tokens += token_counts.get("prompt_tokens", 0)
+        self.completion_tokens += token_counts.get("completion_tokens", 0)
+
+        # If total_tokens is provided, use it directly; otherwise calculate the sum
+        if "total_tokens" in token_counts:
+            self.total_tokens += token_counts["total_tokens"]
+        else:
+            self.total_tokens += token_counts.get(
+                "prompt_tokens", 0
+            ) + token_counts.get("completion_tokens", 0)
+
+        self.call_count += 1
+
+    def get_usage(self):
+        """Get current usage statistics."""
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "call_count": self.call_count,
+        }
+
+    def __str__(self):
+        usage = self.get_usage()
+        return (
+            f"LLM call count: {usage['call_count']}, "
+            f"Prompt tokens: {usage['prompt_tokens']}, "
+            f"Completion tokens: {usage['completion_tokens']}, "
+            f"Total tokens: {usage['total_tokens']}"
+        )

@@ -1,134 +1,199 @@
-"""
-JsonDocStatus Storage Module
-=======================
-
-This module provides a storage interface for graphs using NetworkX, a popular Python library for creating, manipulating, and studying the structure, dynamics, and functions of complex networks.
-
-The `NetworkXStorage` class extends the `BaseGraphStorage` class from the LightRAG library, providing methods to load, save, manipulate, and query graphs using NetworkX.
-
-Author: lightrag team
-Created: 2024-01-25
-License: MIT
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Version: 1.0.0
-
-Dependencies:
-    - NetworkX
-    - NumPy
-    - LightRAG
-    - graspologic
-
-Features:
-    - Load and save graphs in various formats (e.g., GEXF, GraphML, JSON)
-    - Query graph nodes and edges
-    - Calculate node and edge degrees
-    - Embed nodes using various algorithms (e.g., Node2Vec)
-    - Remove nodes and edges from the graph
-
-Usage:
-    from lightrag.storage.networkx_storage import NetworkXStorage
-
-"""
-
-import asyncio
 import os
 from dataclasses import dataclass
-
-from lightrag.utils import (
-    logger,
-    load_json,
-    write_json,
-)
+from typing import Any, final
 
 from lightrag.base import (
     BaseKVStorage,
 )
+from lightrag.utils import (
+    load_json,
+    logger,
+    write_json,
+)
+from .shared_storage import (
+    get_namespace_data,
+    get_storage_lock,
+    get_data_init_lock,
+    get_update_flag,
+    set_all_update_flags,
+    clear_all_update_flags,
+    try_initialize_namespace,
+)
 
 
+@final
 @dataclass
 class JsonKVStorage(BaseKVStorage):
     def __post_init__(self):
         working_dir = self.global_config["working_dir"]
         self._file_name = os.path.join(working_dir, f"kv_store_{self.namespace}.json")
-        self._data = load_json(self._file_name) or {}
-        self._lock = asyncio.Lock()
-        logger.info(f"Load KV {self.namespace} with {len(self._data)} data")
+        self._data = None
+        self._storage_lock = None
+        self.storage_updated = None
 
-    async def all_keys(self) -> list[str]:
-        return list(self._data.keys())
+    async def initialize(self):
+        """Initialize storage data"""
+        self._storage_lock = get_storage_lock()
+        self.storage_updated = await get_update_flag(self.namespace)
+        async with get_data_init_lock():
+            # check need_init must before get_namespace_data
+            need_init = await try_initialize_namespace(self.namespace)
+            self._data = await get_namespace_data(self.namespace)
+            if need_init:
+                loaded_data = load_json(self._file_name) or {}
+                async with self._storage_lock:
+                    self._data.update(loaded_data)
 
-    async def index_done_callback(self):
-        write_json(self._data, self._file_name)
+                    # Calculate data count based on namespace
+                    if self.namespace.endswith("cache"):
+                        # For cache namespaces, sum the cache entries across all cache types
+                        data_count = sum(
+                            len(first_level_dict)
+                            for first_level_dict in loaded_data.values()
+                            if isinstance(first_level_dict, dict)
+                        )
+                    else:
+                        # For non-cache namespaces, use the original count method
+                        data_count = len(loaded_data)
 
-    async def get_by_id(self, id):
-        return self._data.get(id, None)
+                    logger.info(
+                        f"Process {os.getpid()} KV load {self.namespace} with {data_count} records"
+                    )
 
-    async def get_by_ids(self, ids, fields=None):
-        if fields is None:
-            return [self._data.get(id, None) for id in ids]
-        return [
-            (
-                {k: v for k, v in self._data[id].items() if k in fields}
-                if self._data.get(id, None)
-                else None
-            )
-            for id in ids
-        ]
+    async def index_done_callback(self) -> None:
+        async with self._storage_lock:
+            if self.storage_updated.value:
+                data_dict = (
+                    dict(self._data) if hasattr(self._data, "_getvalue") else self._data
+                )
 
-    async def filter_keys(self, data: list[str]) -> set[str]:
-        return set([s for s in data if s not in self._data])
+                # Calculate data count based on namespace
+                if self.namespace.endswith("cache"):
+                    # # For cache namespaces, sum the cache entries across all cache types
+                    data_count = sum(
+                        len(first_level_dict)
+                        for first_level_dict in data_dict.values()
+                        if isinstance(first_level_dict, dict)
+                    )
+                else:
+                    # For non-cache namespaces, use the original count method
+                    data_count = len(data_dict)
 
-    async def upsert(self, data: dict[str, dict]):
-        left_data = {k: v for k, v in data.items() if k not in self._data}
-        self._data.update(left_data)
-        return left_data
+                logger.info(
+                    f"Process {os.getpid()} KV writting {data_count} records to {self.namespace}"
+                )
+                write_json(data_dict, self._file_name)
+                await clear_all_update_flags(self.namespace)
 
-    async def drop(self):
-        self._data = {}
-
-    async def filter(self, filter_func):
-        """Filter key-value pairs based on a filter function
-
-        Args:
-            filter_func: The filter function, which takes a value as an argument and returns a boolean value
+    async def get_all(self) -> dict[str, Any]:
+        """Get all data from storage
 
         Returns:
-            Dict: Key-value pairs that meet the condition
+            Dictionary containing all stored data
         """
-        result = {}
-        async with self._lock:
-            for key, value in self._data.items():
-                if filter_func(value):
-                    result[key] = value
-        return result
+        async with self._storage_lock:
+            return dict(self._data)
 
-    async def delete(self, ids: list[str]):
-        """Delete data with specified IDs
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
+        async with self._storage_lock:
+            return self._data.get(id)
+
+    async def get_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        async with self._storage_lock:
+            return [
+                (
+                    {k: v for k, v in self._data[id].items()}
+                    if self._data.get(id, None)
+                    else None
+                )
+                for id in ids
+            ]
+
+    async def filter_keys(self, keys: set[str]) -> set[str]:
+        async with self._storage_lock:
+            return set(keys) - set(self._data.keys())
+
+    async def upsert(self, data: dict[str, dict[str, Any]]) -> None:
+        """
+        Importance notes for in-memory storage:
+        1. Changes will be persisted to disk during the next index_done_callback
+        2. update flags to notify other processes that data persistence is needed
+        """
+        if not data:
+            return
+        logger.debug(f"Inserting {len(data)} records to {self.namespace}")
+        async with self._storage_lock:
+            self._data.update(data)
+            await set_all_update_flags(self.namespace)
+
+    async def delete(self, ids: list[str]) -> None:
+        """Delete specific records from storage by their IDs
+
+        Importance notes for in-memory storage:
+        1. Changes will be persisted to disk during the next index_done_callback
+        2. update flags to notify other processes that data persistence is needed
 
         Args:
-            ids: List of IDs to delete
+            ids (list[str]): List of document IDs to be deleted from storage
+
+        Returns:
+            None
         """
-        async with self._lock:
-            for id in ids:
-                if id in self._data:
-                    del self._data[id]
+        async with self._storage_lock:
+            any_deleted = False
+            for doc_id in ids:
+                result = self._data.pop(doc_id, None)
+                if result is not None:
+                    any_deleted = True
+
+            if any_deleted:
+                await set_all_update_flags(self.namespace)
+
+    async def drop_cache_by_modes(self, modes: list[str] | None = None) -> bool:
+        """Delete specific records from storage by by cache mode
+
+        Importance notes for in-memory storage:
+        1. Changes will be persisted to disk during the next index_done_callback
+        2. update flags to notify other processes that data persistence is needed
+
+        Args:
+            ids (list[str]): List of cache mode to be drop from storage
+
+        Returns:
+             True: if the cache drop successfully
+             False: if the cache drop failed
+        """
+        if not modes:
+            return False
+
+        try:
+            await self.delete(modes)
+            return True
+        except Exception:
+            return False
+
+    async def drop(self) -> dict[str, str]:
+        """Drop all data from storage and clean up resources
+           This action will persistent the data to disk immediately.
+
+        This method will:
+        1. Clear all data from memory
+        2. Update flags to notify other processes
+        3. Trigger index_done_callback to save the empty state
+
+        Returns:
+            dict[str, str]: Operation status and message
+            - On success: {"status": "success", "message": "data dropped"}
+            - On failure: {"status": "error", "message": "<error details>"}
+        """
+        try:
+            async with self._storage_lock:
+                self._data.clear()
+                await set_all_update_flags(self.namespace)
+
             await self.index_done_callback()
-            logger.info(f"Successfully deleted {len(ids)} items from {self.namespace}")
+            logger.info(f"Process {os.getpid()} drop {self.namespace}")
+            return {"status": "success", "message": "data dropped"}
+        except Exception as e:
+            logger.error(f"Error dropping {self.namespace}: {e}")
+            return {"status": "error", "message": str(e)}

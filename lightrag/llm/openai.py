@@ -1,48 +1,7 @@
-"""
-OpenAI LLM Interface Module
-==========================
-
-This module provides interfaces for interacting with openai's language models,
-including text generation and embedding capabilities.
-
-Author: Lightrag team
-Created: 2024-01-24
-License: MIT License
-
-Copyright (c) 2024 Lightrag
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-Version: 1.0.0
-
-Change Log:
-- 1.0.0 (2024-01-24): Initial release
-    * Added async chat completion support
-    * Added embedding generation
-    * Added stream response capability
-
-Dependencies:
-    - openai
-    - numpy
-    - pipmaster
-    - Python >= 3.10
-
-Usage:
-    from llm_interfaces.openai import openai_model_complete, openai_embed
-"""
-
-__version__ = "1.0.0"
-__author__ = "lightrag Team"
-__status__ = "Production"
-
-
+from ..utils import verbose_debug, VERBOSE_DEBUG
 import sys
 import os
+import logging
 
 if sys.version_info < (3, 9):
     from typing import AsyncIterator
@@ -76,13 +35,56 @@ from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.api import __api_version__
 
 import numpy as np
-from typing import Union
+from typing import Any, Union
 
 
 class InvalidResponseError(Exception):
     """Custom exception class for triggering retry mechanism"""
 
     pass
+
+
+def create_openai_async_client(
+    api_key: str | None = None,
+    base_url: str | None = None,
+    client_configs: dict[str, Any] = None,
+) -> AsyncOpenAI:
+    """Create an AsyncOpenAI client with the given configuration.
+
+    Args:
+        api_key: OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
+        base_url: Base URL for the OpenAI API. If None, uses the default OpenAI API URL.
+        client_configs: Additional configuration options for the AsyncOpenAI client.
+            These will override any default configurations but will be overridden by
+            explicit parameters (api_key, base_url).
+
+    Returns:
+        An AsyncOpenAI client instance.
+    """
+    if not api_key:
+        api_key = os.environ["OPENAI_API_KEY"]
+
+    default_headers = {
+        "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_8) LightRAG/{__api_version__}",
+        "Content-Type": "application/json",
+    }
+
+    if client_configs is None:
+        client_configs = {}
+
+    # Create a merged config dict with precedence: explicit params > client_configs > defaults
+    merged_configs = {
+        **client_configs,
+        "default_headers": default_headers,
+        "api_key": api_key,
+    }
+
+    if base_url is not None:
+        merged_configs["base_url"] = base_url
+    else:
+        merged_configs["base_url"] = os.environ["OPENAI_API_BASE"]
+
+    return AsyncOpenAI(**merged_configs)
 
 
 @retry(
@@ -93,43 +95,74 @@ class InvalidResponseError(Exception):
     ),
 )
 async def openai_complete_if_cache(
-    model,
-    prompt,
-    system_prompt=None,
-    history_messages=None,
-    base_url=None,
-    api_key=None,
-    **kwargs,
+    model: str,
+    prompt: str,
+    system_prompt: str | None = None,
+    history_messages: list[dict[str, Any]] | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    token_tracker: Any | None = None,
+    **kwargs: Any,
 ) -> str:
+    """Complete a prompt using OpenAI's API with caching support.
+
+    Args:
+        model: The OpenAI model to use.
+        prompt: The prompt to complete.
+        system_prompt: Optional system prompt to include.
+        history_messages: Optional list of previous messages in the conversation.
+        base_url: Optional base URL for the OpenAI API.
+        api_key: Optional OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
+        **kwargs: Additional keyword arguments to pass to the OpenAI API.
+            Special kwargs:
+            - openai_client_configs: Dict of configuration options for the AsyncOpenAI client.
+                These will be passed to the client constructor but will be overridden by
+                explicit parameters (api_key, base_url).
+            - hashing_kv: Will be removed from kwargs before passing to OpenAI.
+            - keyword_extraction: Will be removed from kwargs before passing to OpenAI.
+
+    Returns:
+        The completed text or an async iterator of text chunks if streaming.
+
+    Raises:
+        InvalidResponseError: If the response from OpenAI is invalid or empty.
+        APIConnectionError: If there is a connection error with the OpenAI API.
+        RateLimitError: If the OpenAI API rate limit is exceeded.
+        APITimeoutError: If the OpenAI API request times out.
+    """
     if history_messages is None:
         history_messages = []
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
 
-    default_headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_8) LightRAG/{__api_version__}",
-        "Content-Type": "application/json",
-    }
-    openai_async_client = (
-        AsyncOpenAI(default_headers=default_headers)
-        if base_url is None
-        else AsyncOpenAI(base_url=base_url, default_headers=default_headers)
+    # Set openai logger level to INFO when VERBOSE_DEBUG is off
+    if not VERBOSE_DEBUG and logger.level == logging.DEBUG:
+        logging.getLogger("openai").setLevel(logging.INFO)
+
+    # Extract client configuration options
+    client_configs = kwargs.pop("openai_client_configs", {})
+
+    # Create the OpenAI client
+    openai_async_client = create_openai_async_client(
+        api_key=api_key, base_url=base_url, client_configs=client_configs
     )
+
+    # Remove special kwargs that shouldn't be passed to OpenAI
     kwargs.pop("hashing_kv", None)
     kwargs.pop("keyword_extraction", None)
-    messages = []
+
+    # Prepare messages
+    messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.extend(history_messages)
     messages.append({"role": "user", "content": prompt})
 
-    # 添加日志输出
-    logger.debug("===== Query Input to LLM =====")
+    logger.debug("===== Entering func of LLM =====")
     logger.debug(f"Model: {model}   Base URL: {base_url}")
     logger.debug(f"Additional kwargs: {kwargs}")
-    logger.debug(f"Query: {prompt}")
-    logger.debug(f"System prompt: {system_prompt}")
-    # logger.debug(f"Messages: {messages}")
+    logger.debug(f"Num of history messages: {len(history_messages)}")
+    verbose_debug(f"System prompt: {system_prompt}")
+    verbose_debug(f"Query: {prompt}")
+    logger.debug("===== Sending Query to LLM =====")
 
     try:
         if "response_format" in kwargs:
@@ -141,18 +174,18 @@ async def openai_complete_if_cache(
                 model=model, messages=messages, **kwargs
             )
     except APIConnectionError as e:
-        logger.error(f"OpenAI API Connection Error: {str(e)}")
+        logger.error(f"OpenAI API Connection Error: {e}")
         raise
     except RateLimitError as e:
-        logger.error(f"OpenAI API Rate Limit Error: {str(e)}")
+        logger.error(f"OpenAI API Rate Limit Error: {e}")
         raise
     except APITimeoutError as e:
-        logger.error(f"OpenAI API Timeout Error: {str(e)}")
+        logger.error(f"OpenAI API Timeout Error: {e}")
         raise
     except Exception as e:
-        logger.error(f"OpenAI API Call Failed: {str(e)}")
-        logger.error(f"Model: {model}")
-        logger.error(f"Request parameters: {kwargs}")
+        logger.error(
+            f"OpenAI API Call Failed,\nModel: {model},\nParams: {kwargs}, Got: {e}"
+        )
         raise
 
     if hasattr(response, "__aiter__"):
@@ -190,6 +223,18 @@ async def openai_complete_if_cache(
 
         if r"\u" in content:
             content = safe_unicode_decode(content.encode("utf-8"))
+
+        if token_tracker and hasattr(response, "usage"):
+            token_counts = {
+                "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(response.usage, "completion_tokens", 0),
+                "total_tokens": getattr(response.usage, "total_tokens", 0),
+            }
+            token_tracker.add_usage(token_counts)
+
+        logger.debug(f"Response content len: {len(content)}")
+        verbose_debug(f"Response: {response}")
+
         return content
 
 
@@ -293,20 +338,33 @@ async def openai_embed(
     model: str = "text-embedding-3-small",
     base_url: str = None,
     api_key: str = None,
+    client_configs: dict[str, Any] = None,
     timeout: int = 300,
 ) -> np.ndarray:
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+    """Generate embeddings for a list of texts using OpenAI's API.
 
-    default_headers = {
-        "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_8) LightRAG/{__api_version__}",
-        "Content-Type": "application/json",
-    }
-    openai_async_client = (
-        AsyncOpenAI(default_headers=default_headers)
-        if base_url is None
-        else AsyncOpenAI(base_url=base_url, default_headers=default_headers)
+    Args:
+        texts: List of texts to embed.
+        model: The OpenAI embedding model to use.
+        base_url: Optional base URL for the OpenAI API.
+        api_key: Optional OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
+        client_configs: Additional configuration options for the AsyncOpenAI client.
+            These will override any default configurations but will be overridden by
+            explicit parameters (api_key, base_url).
+
+    Returns:
+        A numpy array of embeddings, one per input text.
+
+    Raises:
+        APIConnectionError: If there is a connection error with the OpenAI API.
+        RateLimitError: If the OpenAI API rate limit is exceeded.
+        APITimeoutError: If the OpenAI API request times out.
+    """
+    # Create the OpenAI client
+    openai_async_client = create_openai_async_client(
+        api_key=api_key, base_url=base_url, client_configs=client_configs
     )
+
     response = await openai_async_client.embeddings.create(
         model=model, input=texts, encoding_format="float", timeout=timeout
     )

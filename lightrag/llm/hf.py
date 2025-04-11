@@ -1,47 +1,7 @@
-"""
-Hugging face LLM Interface Module
-==========================
-
-This module provides interfaces for interacting with Hugging face's language models,
-including text generation and embedding capabilities.
-
-Author: Lightrag team
-Created: 2024-01-24
-License: MIT License
-
-Copyright (c) 2024 Lightrag
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-Version: 1.0.0
-
-Change Log:
-- 1.0.0 (2024-01-24): Initial release
-    * Added async chat completion support
-    * Added embedding generation
-    * Added stream response capability
-
-Dependencies:
-    - transformers
-    - numpy
-    - pipmaster
-    - Python >= 3.10
-
-Usage:
-    from llm_interfaces.hf import hf_model_complete, hf_embed
-"""
-
-__version__ = "1.0.0"
-__author__ = "lightrag Team"
-__status__ = "Production"
-
 import copy
 import os
+from functools import lru_cache
+
 import pipmaster as pm  # Pipmaster for dynamic library install
 
 # install specific modules
@@ -51,9 +11,12 @@ if not pm.is_installed("torch"):
     pm.install("torch")
 if not pm.is_installed("tenacity"):
     pm.install("tenacity")
+if not pm.is_installed("numpy"):
+    pm.install("numpy")
+if not pm.is_installed("tenacity"):
+    pm.install("tenacity")
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from functools import lru_cache
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -175,13 +138,31 @@ async def hf_model_complete(
 
 
 async def hf_embed(texts: list[str], tokenizer, embed_model) -> np.ndarray:
-    device = next(embed_model.parameters()).device
-    input_ids = tokenizer(
+    # Detect the appropriate device
+    if torch.cuda.is_available():
+        device = next(embed_model.parameters()).device  # Use CUDA if available
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")  # Use MPS for Apple Silicon
+    else:
+        device = torch.device("cpu")  # Fallback to CPU
+
+    # Move the model to the detected device
+    embed_model = embed_model.to(device)
+
+    # Tokenize the input texts and move them to the same device
+    encoded_texts = tokenizer(
         texts, return_tensors="pt", padding=True, truncation=True
-    ).input_ids.to(device)
+    ).to(device)
+
+    # Perform inference
     with torch.no_grad():
-        outputs = embed_model(input_ids)
+        outputs = embed_model(
+            input_ids=encoded_texts["input_ids"],
+            attention_mask=encoded_texts["attention_mask"],
+        )
         embeddings = outputs.last_hidden_state.mean(dim=1)
+
+    # Convert embeddings to NumPy
     if embeddings.dtype == torch.bfloat16:
         return embeddings.detach().to(torch.float32).cpu().numpy()
     else:

@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 import numpy as np
 
 from dotenv import load_dotenv
@@ -8,7 +9,9 @@ from sentence_transformers import SentenceTransformer
 from openai import AzureOpenAI
 from lightrag import LightRAG, QueryParam
 from lightrag.utils import EmbeddingFunc
+from lightrag.kg.shared_storage import initialize_pipeline_status
 
+WORKING_DIR = "./dickens"
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 
@@ -56,10 +59,7 @@ async def embedding_func(texts: list[str]) -> np.ndarray:
     return embeddings
 
 
-def main():
-    WORKING_DIR = "./dickens"
-
-    # Initialize LightRAG with the LLM model function and embedding function
+async def initialize_rag():
     rag = LightRAG(
         working_dir=WORKING_DIR,
         llm_model_func=llm_model_func,
@@ -70,10 +70,19 @@ def main():
         ),
         vector_storage="FaissVectorDBStorage",
         vector_db_storage_cls_kwargs={
-            "cosine_better_than_threshold": 0.3  # Your desired threshold
+            "cosine_better_than_threshold": 0.2  # Your desired threshold
         },
     )
 
+    await rag.initialize_storages()
+    await initialize_pipeline_status()
+
+    return rag
+
+
+def main():
+    # Initialize RAG instance
+    rag = asyncio.run(initialize_rag())
     # Insert the custom chunks into LightRAG
     book1 = open("./book_1.txt", encoding="utf-8")
     book2 = open("./book_2.txt", encoding="utf-8")

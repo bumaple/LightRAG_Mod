@@ -1,23 +1,6 @@
-import base64
-import copy
-import json
-import os
-import re
-import struct
-from functools import lru_cache
-from typing import List, Dict, Callable, Any, Union, Optional
-import aioboto3
-import aiohttp
-import numpy as np
-import ollama
-import torch
-from openai import (
-    AsyncOpenAI,
-    APIConnectionError,
-    RateLimitError,
-    APITimeoutError,
-    AsyncAzureOpenAI,
-)
+from __future__ import annotations
+
+from typing import Callable, Any
 from pydantic import BaseModel, Field
 
 
@@ -42,7 +25,7 @@ class Model(BaseModel):
         ...,
         description="A function that generates the response from the llm. The response must be a string",
     )
-    kwargs: Dict[str, Any] = Field(
+    kwargs: dict[str, Any] = Field(
         ...,
         description="The arguments to pass to the callable function. Eg. the api key, model name, etc",
     )
@@ -76,7 +59,7 @@ class MultiModel:
         ```
     """
 
-    def __init__(self, models: List[Model]):
+    def __init__(self, models: list[Model]):
         self._models = models
         self._current_model = 0
 
@@ -85,7 +68,11 @@ class MultiModel:
         return self._models[self._current_model]
 
     async def llm_model_func(
-        self, prompt, system_prompt=None, history_messages=[], **kwargs
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        history_messages: list[dict[str, Any]] = [],
+        **kwargs: Any,
     ) -> str:
         kwargs.pop("model", None)  # stop from overwriting the custom model name
         kwargs.pop("keyword_extraction", None)
