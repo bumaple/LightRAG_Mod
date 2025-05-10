@@ -50,7 +50,7 @@ def chunking_by_token_size(
     split_by_character_only: bool = False,
     overlap_token_size: int = 128,
     max_token_size: int = 1024,
-    tiktoken_model: str = "gpt-4o",
+    tiktoken_model: str = "gpt-4",
 ) -> list[dict[str, Any]]:
     tokens = encode_string_by_tiktoken(content, model_name=tiktoken_model)
     results: list[dict[str, Any]] = []

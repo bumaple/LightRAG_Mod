@@ -273,7 +273,7 @@ async def gpt_4o_complete(
     if keyword_extraction:
         kwargs["response_format"] = GPTKeywordExtractionFormat
     return await openai_complete_if_cache(
-        "gpt-4o",
+        "gpt-4",
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,

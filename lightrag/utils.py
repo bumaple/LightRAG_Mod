@@ -16,9 +16,8 @@ from typing import Any, Callable, TYPE_CHECKING
 import xml.etree.ElementTree as ET
 import numpy as np
 import tiktoken
-import loguru
 
-from lightrag.prompt import PROMPTS
+from lightrag.prompt_cn import PROMPTS
 from dotenv import load_dotenv
 
 # Use TYPE_CHECKING to avoid circular imports
@@ -67,14 +66,13 @@ def set_verbose_debug(enabled: bool):
 statistic_data = {"llm_call": 0, "llm_cache": 0, "embed_call": 0}
 
 # Initialize logger
-# logger = logging.getLogger("lightrag")
-# logger.propagate = False  # prevent log message send to root loggger
+logger = logging.getLogger("lightrag")
+logger.propagate = False  # prevent log message send to root loggger
 # Let the main application configure the handlers
-# logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
 
 # Set httpx logging level to WARNING
-# logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = loguru.logger
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class LightragPathFilter(logging.Filter):
@@ -118,90 +116,76 @@ class LightragPathFilter(logging.Filter):
             return True
 
 
-# def setup_logger(
-#     logger_name: str,
-#     level: str = "INFO",
-#     add_filter: bool = False,
-#     log_file_path: str | None = None,
-#     enable_file_logging: bool = True,
-# ):
-#     """Set up a logger with console and optionally file handlers
-#
-#     Args:
-#         logger_name: Name of the logger to set up
-#         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-#         add_filter: Whether to add LightragPathFilter to the logger
-#         log_file_path: Path to the log file. If None and file logging is enabled, defaults to lightrag.log in LOG_DIR or cwd
-#         enable_file_logging: Whether to enable logging to a file (defaults to True)
-#     """
-#     # Configure formatters
-#     detailed_formatter = logging.Formatter(
-#         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-#     )
-#     simple_formatter = logging.Formatter("%(levelname)s: %(message)s")
-#
-#     logger_instance = logging.getLogger(logger_name)
-#     logger_instance.setLevel(level)
-#     logger_instance.handlers = []  # Clear existing handlers
-#     logger_instance.propagate = False
-#
-#     # Add console handler
-#     console_handler = logging.StreamHandler()
-#     console_handler.setFormatter(simple_formatter)
-#     console_handler.setLevel(level)
-#     logger_instance.addHandler(console_handler)
-#
-#     # Add file handler by default unless explicitly disabled
-#     if enable_file_logging:
-#         # Get log file path
-#         if log_file_path is None:
-#             log_dir = os.getenv("LOG_DIR", os.getcwd())
-#             log_file_path = os.path.abspath(os.path.join(log_dir, "lightrag.log"))
-#
-#         # Ensure log directory exists
-#         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-#
-#         # Get log file max size and backup count from environment variables
-#         log_max_bytes = int(os.getenv("LOG_MAX_BYTES", 10485760))  # Default 10MB
-#         log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", 5))  # Default 5 backups
-#
-#         try:
-#             # Add file handler
-#             file_handler = logging.handlers.RotatingFileHandler(
-#                 filename=log_file_path,
-#                 maxBytes=log_max_bytes,
-#                 backupCount=log_backup_count,
-#                 encoding="utf-8",
-#             )
-#             file_handler.setFormatter(detailed_formatter)
-#             file_handler.setLevel(level)
-#             logger_instance.addHandler(file_handler)
-#         except PermissionError as e:
-#             logger.warning(f"Could not create log file at {log_file_path}: {str(e)}")
-#             logger.warning("Continuing with console logging only")
-#
-#     # Add path filter if requested
-#     if add_filter:
-#         path_filter = LightragPathFilter()
-#         logger_instance.addFilter(path_filter)
+def setup_logger(
+    logger_name: str,
+    level: str = "INFO",
+    add_filter: bool = False,
+    log_file_path: str | None = None,
+    enable_file_logging: bool = True,
+):
+    """Set up a logger with console and optionally file handlers
 
-
-def set_logger(log_file: str, log_level: str = "INFO"):
+    Args:
+        logger_name: Name of the logger to set up
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        add_filter: Whether to add LightragPathFilter to the logger
+        log_file_path: Path to the log file. If None and file logging is enabled, defaults to lightrag.log in LOG_DIR or cwd
+        enable_file_logging: Whether to enable logging to a file (defaults to True)
     """
-        TRACE：用于追踪代码中的详细信息。
-        DEBUG：用于调试和开发过程中的详细信息。
-        INFO：用于提供一般性的信息，表明应用程序正在按预期运行。
-        SUCCESS：用于表示成功完成的操作。
-        WARNING：用于表示潜在的问题或警告，不会导致应用程序的中断或错误。
-        ERROR：用于表示错误，可能会导致应用程序的中断或异常行为。
-        CRITICAL：用于表示严重错误，通常与应用程序无法继续执行相关。
-    """
-    if log_level not in ['TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', 'CRITICAL']:
-        log_level = 'INFO'
+    # Configure formatters
+    detailed_formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    simple_formatter = logging.Formatter("%(levelname)s: %(message)s")
 
-    logger.add(sink=log_file, level=log_level, rotation="1 days", retention="30 days",
-               encoding="utf-8", enqueue=True, colorize=False, backtrace=True, diagnose=True)
+    logger_instance = logging.getLogger(logger_name)
+    logger_instance.setLevel(level)
+    logger_instance.handlers = []  # Clear existing handlers
+    logger_instance.propagate = False
 
+    # Add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(simple_formatter)
+    console_handler.setLevel(level)
+    logger_instance.addHandler(console_handler)
+
+    # Add file handler by default unless explicitly disabled
+    if enable_file_logging:
+        # Get log file path
+        if log_file_path is None:
+            log_dir = os.getenv("LOG_DIR", os.getcwd())
+            log_file_path = os.path.abspath(os.path.join(log_dir, "lightrag.log"))
+
+        # 判断log_file_path是目录还是文件
+        if os.path.isdir(log_file_path):
+            log_file_path = os.path.join(log_file_path, "lightrag.log")
+
+        # Ensure log directory exists
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+        # Get log file max size and backup count from environment variables
+        log_max_bytes = int(os.getenv("LOG_MAX_BYTES", 10485760))  # Default 10MB
+        log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", 5))  # Default 5 backups
+
+        try:
+            # Add file handler
+            file_handler = logging.handlers.RotatingFileHandler(
+                filename=log_file_path,
+                maxBytes=log_max_bytes,
+                backupCount=log_backup_count,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(detailed_formatter)
+            file_handler.setLevel(level)
+            logger_instance.addHandler(file_handler)
+        except PermissionError as e:
+            logger.warning(f"Could not create log file at {log_file_path}: {str(e)}")
+            logger.warning("Continuing with console logging only")
+
+    # Add path filter if requested
+    if add_filter:
+        path_filter = LightragPathFilter()
+        logger_instance.addFilter(path_filter)
 
 
 class UnlimitedSemaphore:
@@ -335,7 +319,7 @@ def write_json(json_obj, file_name):
         json.dump(json_obj, f, indent=2, ensure_ascii=False)
 
 
-def encode_string_by_tiktoken(content: str, model_name: str = "gpt-4o"):
+def encode_string_by_tiktoken(content: str, model_name: str = "gpt-4"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
@@ -343,7 +327,7 @@ def encode_string_by_tiktoken(content: str, model_name: str = "gpt-4o"):
     return tokens
 
 
-def decode_tokens_by_tiktoken(tokens: list[int], model_name: str = "gpt-4o"):
+def decode_tokens_by_tiktoken(tokens: list[int], model_name: str = "gpt-4"):
     global ENCODER
     if ENCODER is None:
         ENCODER = tiktoken.encoding_for_model(model_name)
@@ -546,11 +530,11 @@ async def get_best_cached_response(
     logger.debug(
         f"get_best_cached_response:  mode={mode} cache_type={cache_type} use_llm_check={use_llm_check}"
     )
-    # if exists_func(hashing_kv, "get_by_mode_cachetype"):
-    #     mode_cache = await hashing_kv.get_by_mode_cachetype(mode, cache_type)
-    # else:
-    #     mode_cache = await hashing_kv.get_by_id(mode)
-    mode_cache = await hashing_kv.get_by_id(mode)
+    if exists_func(hashing_kv, "get_by_mode_cachetype"):
+        mode_cache = await hashing_kv.get_by_mode_cachetype(mode, cache_type)
+    else:
+        mode_cache = await hashing_kv.get_by_id(mode)
+    # mode_cache = await hashing_kv.get_by_id(mode)
     if not mode_cache:
         return None
 
@@ -716,13 +700,18 @@ async def handle_cache(
             if best_cached_response is not None:
                 logger.debug(f"Embedding cached hit(mode:{mode} type:{cache_type})")
                 logger.info(
-                    f"相似度匹配缓存[命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
+                    f"相似度匹配缓存[命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}]")
+                query_cache_delay = embedding_cache_config.get("query_cache_delay", 0)
+                if query_cache_delay > 0:
+                    # 避免返回太快，休眠
+                    logger.info(f"缓存返回强制延时: {query_cache_delay}")
+                    await asyncio.sleep(query_cache_delay)
                 return best_cached_response, None, None, None
             else:
                 # if caching keyword embedding is enabled, return the quantized embedding for saving it latter
                 logger.debug(f"Embedding cached missed(mode:{mode} type:{cache_type})")
                 logger.info(
-                    f"相似度匹配缓存[未命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}] 匹配向量值[{quantized}] 最小向量值[{min_val}] 最大向量值[{max_val}]")
+                    f"相似度匹配缓存[未命中] 相似度阈值[{embedding_cache_config['similarity_threshold']}] [{args_hash}]")
                 return None, quantized, min_val, max_val
 
     else:  # handle cache for entity extraction
@@ -739,6 +728,16 @@ async def handle_cache(
     if args_hash in mode_cache:
         logger.debug(f"Non-embedding cached hit(mode:{mode} type:{cache_type})")
         logger.info(f"全文匹配缓存[命中] [{mode}_{args_hash}]")
+
+        embedding_cache_config = hashing_kv.global_config.get(
+            "embedding_cache_config",
+            {"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False},
+        )
+        query_cache_delay = embedding_cache_config.get("query_cache_delay", 0)
+        if query_cache_delay > 0:
+            # 避免返回太快，休眠
+            logger.info(f"缓存返回强制延时: {query_cache_delay}")
+            await asyncio.sleep(query_cache_delay)
         return mode_cache[args_hash]["return"], None, None, None
     logger.info(f"全文匹配缓存[未命中] [{mode}_{args_hash}]")
     logger.debug(f"Non-embedding cached missed(mode:{mode} type:{cache_type})")

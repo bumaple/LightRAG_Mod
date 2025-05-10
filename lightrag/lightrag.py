@@ -54,7 +54,6 @@ from .utils import (
     clean_text,
     check_storage_env_vars,
     logger,
-    set_logger,
 )
 from .types import KnowledgeGraph
 from dotenv import load_dotenv
@@ -65,8 +64,8 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=".env", override=False)
 
 # TODO: TO REMOVE @Yannick
-config = configparser.ConfigParser()
-config.read("config.ini", "utf-8")
+# config = configparser.ConfigParser()
+# config.read("config.ini", "utf-8")
 
 
 @final
@@ -314,7 +313,6 @@ class LightRAG:
             delattr(self, "log_file_path")
 
         initialize_share_data()
-
 
         blobpath = f"https://openaipublic.blob.core.windows.net/encodings/{self.tiktoken_encoding_name}.tiktoken"
         cache_key = hashlib.sha1(blobpath.encode()).hexdigest()

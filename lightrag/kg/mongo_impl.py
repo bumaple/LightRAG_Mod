@@ -148,12 +148,12 @@ class MongoKVStorage(BaseKVStorage):
 
 
     async def get_by_mode_cachetype(self, mode: str, cache_type: str) -> Union[dict, None]:
-        if "llm_response_cache" == self.namespace:
+        if is_namespace(self.namespace, NameSpace.KV_STORE_LLM_RESPONSE_CACHE):
             res = {}
             query = {"_id": {"$regex": f"{mode}_*", "$options": "i"}, "cache_type": cache_type}
-            results = self._data.find(query)
-            # logger.debug(f"llm_response_cache find {len(results)} by:{mode} {cache_type}")
-            for result in results:
+            cursor = self._data.find(query)
+            v = await cursor.to_list()
+            for result in v:
                 key = result["_id"]
                 res[key] = result
             return res
